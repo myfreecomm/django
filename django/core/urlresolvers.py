@@ -416,7 +416,7 @@ class RegexURLResolver(LocaleRegexProvider):
             raise NoReverseMatch("Error importing '%s': %s." % (lookup_view, e))
         possibilities = self.reverse_dict.getlist(lookup_view)
 
-        prefix_norm, prefix_args = normalize(urlquote(_prefix))[0]
+        prefix_norm, prefix_args = normalize(urlquote(_prefix, safe=":/"))[0]
         for possibility, pattern, defaults in possibilities:
             for result, params in possibility:
                 if args:
