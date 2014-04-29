@@ -76,7 +76,7 @@ the cache:
 
 * Set :setting:`SESSION_ENGINE` to
   ``"django.contrib.sessions.backends.cache"`` for a simple caching session
-  store. Session data will be stored directly your cache. However, session
+  store. Session data will be stored directly in your cache. However, session
   data may not be persistent: cached data can be evicted if the cache fills
   up or if the cache server is restarted.
 
@@ -154,8 +154,12 @@ and the :setting:`SECRET_KEY` setting.
     integrity of the data (that it is all there and correct), it cannot
     guarantee freshness i.e. that you are being sent back the last thing you
     sent to the client. This means that for some uses of session data, the
-    cookie backend might open you up to `replay attacks`_. Cookies will only be
-    detected as 'stale' if they are older than your
+    cookie backend might open you up to `replay attacks`_. Unlike other session
+    backends which keep a server-side record of each session and invalidate it
+    when a user logs out, cookie-based sessions are not invalidated when a user
+    logs out. Thus if an attacker steals a user's cookie, he can use that
+    cookie to login as that user even if the user logs out. Cookies will only
+    be detected as 'stale' if they are older than your
     :setting:`SESSION_COOKIE_AGE`.
 
     **Performance**
@@ -312,7 +316,8 @@ Session serialization
 Before version 1.6, Django defaulted to using :mod:`pickle` to serialize
 session data before storing it in the backend. If you're using the :ref:`signed
 cookie session backend<cookie-session-backend>` and :setting:`SECRET_KEY` is
-known by an attacker, the attacker could insert a string into his session
+known by an attacker (there isn't an inherent vulnerability in Django that
+would cause it to leak), the attacker could insert a string into his session
 which, when unpickled, executes arbitrary code on the server. The technique for
 doing so is simple and easily available on the internet. Although the cookie
 session storage signs the cookie-stored data to prevent tampering, a
@@ -337,8 +342,21 @@ Bundled Serializers
 .. class:: serializers.JSONSerializer
 
     A wrapper around the JSON serializer from :mod:`django.core.signing`. Can
-    only serialize basic data types. See the :ref:`custom-serializers` section
-    for more details.
+    only serialize basic data types.
+
+    In addition, as JSON supports only string keys, note that using non-string
+    keys in ``request.session`` won't work as expected::
+
+        >>> # initial assignment
+        >>> request.session[0] = 'bar'
+        >>> # subsequent requests following serialization & deserialization
+        >>> # of session data
+        >>> request.session[0]  # KeyError
+        >>> request.session['0']
+        'bar'
+
+    See the :ref:`custom-serializers` section for more details on limitations
+    of JSON serialization.
 
 .. class:: serializers.PickleSerializer
 
