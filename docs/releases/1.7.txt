@@ -702,6 +702,9 @@ Models
   Previously model field validation didn't prevent values out of their associated
   column data type range from being saved resulting in an integrity error.
 
+* It is now possible to explicitly :meth:`~django.db.models.query.QuerySet.order_by`
+  a relation ``_id`` field by using its attribute name.
+
 Signals
 ^^^^^^^
 
@@ -1194,6 +1197,7 @@ Miscellaneous
   fields in the model inheritance hierarchy results in a system check error.
   For example, if you use multi-inheritance, you need to define custom primary
   key fields on parent models, otherwise the default ``id`` fields will clash.
+  See :ref:`model-multiple-inheritance-topic` for details.
 
 * ``django.utils.translation.parse_accept_lang_header()`` now returns
   lowercase locales, instead of the case as it was provided. As locales should

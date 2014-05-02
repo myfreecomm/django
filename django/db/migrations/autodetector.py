@@ -50,18 +50,36 @@ class MigrationAutodetector(object):
         old_apps = self.from_state.render()
         new_apps = self.to_state.render()
         # Prepare lists of old/new model keys that we care about
-        # (i.e. ignoring proxy ones)
+        # (i.e. ignoring proxy ones and unmigrated ones)
+
         old_model_keys = []
         for al, mn in self.from_state.models.keys():
             model = old_apps.get_model(al, mn)
-            if not model._meta.proxy and model._meta.managed:
+            if not model._meta.proxy and model._meta.managed and al not in self.from_state.real_apps:
                 old_model_keys.append((al, mn))
 
         new_model_keys = []
         for al, mn in self.to_state.models.keys():
             model = new_apps.get_model(al, mn)
-            if not model._meta.proxy and model._meta.managed:
+            if not model._meta.proxy and model._meta.managed and al not in self.to_state.real_apps:
                 new_model_keys.append((al, mn))
+
+        def _deep_deconstruct(obj, field=True):
+            """
+            Recursive deconstruction for a field and its arguments.
+            """
+            if not hasattr(obj, 'deconstruct'):
+                return obj
+            deconstructed = obj.deconstruct()
+            if field:
+                deconstructed = deconstructed[1:]
+            name, args, kwargs = deconstructed
+            return (
+                name,
+                [_deep_deconstruct(value, field=False) for value in args],
+                dict([(key, _deep_deconstruct(value, field=False))
+                      for key, value in kwargs.items()])
+            )
 
         def _rel_agnostic_fields_def(fields):
             """
@@ -70,7 +88,7 @@ class MigrationAutodetector(object):
             """
             fields_def = []
             for name, field in fields:
-                deconstruction = field.deconstruct()[1:]
+                deconstruction = _deep_deconstruct(field)
                 if field.rel and field.rel.to:
                     del deconstruction[2]['to']
                 fields_def.append(deconstruction)
@@ -254,11 +272,11 @@ class MigrationAutodetector(object):
             new_model_state = self.to_state.models[app_label, model_name]
             field = new_model_state.get_field_by_name(field_name)
             # Scan to see if this is actually a rename!
-            field_dec = field.deconstruct()[1:]
+            field_dec = _deep_deconstruct(field)
             found_rename = False
             for rem_app_label, rem_model_name, rem_field_name in (old_fields - new_fields):
                 if rem_app_label == app_label and rem_model_name == model_name:
-                    old_field_dec = old_model_state.get_field_by_name(rem_field_name).deconstruct()[1:]
+                    old_field_dec = _deep_deconstruct(old_model_state.get_field_by_name(rem_field_name))
                     if field.rel and field.rel.to and 'to' in old_field_dec[2]:
                         old_rel_to = old_field_dec[2]['to']
                         if old_rel_to in renamed_models_rel:
@@ -325,8 +343,8 @@ class MigrationAutodetector(object):
             old_model_state = self.from_state.models[app_label, old_model_name]
             new_model_state = self.to_state.models[app_label, model_name]
             old_field_name = renamed_fields.get((app_label, model_name, field_name), field_name)
-            old_field_dec = old_model_state.get_field_by_name(old_field_name).deconstruct()[1:]
-            new_field_dec = new_model_state.get_field_by_name(field_name).deconstruct()[1:]
+            old_field_dec = _deep_deconstruct(old_model_state.get_field_by_name(old_field_name))
+            new_field_dec = _deep_deconstruct(new_model_state.get_field_by_name(field_name))
             if old_field_dec != new_field_dec:
                 self.add_to_migration(
                     app_label,

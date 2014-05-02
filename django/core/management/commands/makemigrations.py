@@ -27,6 +27,7 @@ class Command(BaseCommand):
 
     help = "Creates new migration(s) for apps."
     usage_str = "Usage: ./manage.py makemigrations [--dry-run] [app [app ...]]"
+    args = "[app_label [app_label ...]]"
 
     def handle(self, *app_labels, **options):
 
@@ -52,8 +53,7 @@ class Command(BaseCommand):
         # Load the current graph state. Takes a connection, but it's not used
         # (makemigrations doesn't look at the database state).
         # Also make sure the graph is built without unmigrated apps shoehorned in.
-        loader = MigrationLoader(connections[DEFAULT_DB_ALIAS], load=False)
-        loader.build_graph(ignore_unmigrated=True)
+        loader = MigrationLoader(connections[DEFAULT_DB_ALIAS])
 
         # Before anything else, see if there's conflicting apps and drop out
         # hard if there are any and they don't want to merge
@@ -77,7 +77,7 @@ class Command(BaseCommand):
 
         # Set up autodetector
         autodetector = MigrationAutodetector(
-            loader.graph.project_state(),
+            loader.project_state(),
             ProjectState.from_apps(apps),
             InteractiveMigrationQuestioner(specified_apps=app_labels),
         )
