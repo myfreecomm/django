@@ -28,6 +28,9 @@ output incorrect code.
 All of the core Django operations are available from the
 ``django.db.migrations.operations`` module.
 
+For introductory material, see the :doc:`migrations topic guide
+</topics/migrations>`.
+
 Schema Operations
 =================
 
@@ -99,6 +102,25 @@ Changes the model's set of custom indexes (the
 :attr:`~django.db.models.Options.index_together` option on the ``Meta``
 subclass).
 
+AlterOrderWithRespectTo
+-----------------------
+
+.. class:: AlterOrderWithRespectTo(name, order_with_respect_to)
+
+Makes or deletes the ``_order`` column needed for the
+:attr:`~django.db.models.Options.order_with_respect_to` option on the ``Meta``
+subclass.
+
+AlterModelOptions
+-----------------
+
+.. class:: AlterModelOptions(name, options)
+
+Stores changes to miscellaneous model options (settings on a model's ``Meta``)
+like ``permissions`` and ``verbose_name``. Does not affect the database, but
+persists these changes for :class:`RunPython` instances to use. ``options``
+should be a dictionary mapping option names to values.
+
 AddField
 --------
 
@@ -115,7 +137,7 @@ or if it is temporary and just for this migration (``False``) - usually
 because the migration is adding a non-nullable field to a table and needs
 a default value to put into existing rows. It does not effect the behavior
 of setting defaults in the database directly - Django never sets database
-defaults, and always applies them in the Django ORM code.
+defaults and always applies them in the Django ORM code.
 
 RemoveField
 -----------
@@ -131,15 +153,27 @@ from any data loss, which of course is irreversible).
 AlterField
 ----------
 
-.. class:: AlterField(model_name, name, field)
+.. class:: AlterField(model_name, name, field, preserve_default=True)
 
 Alters a field's definition, including changes to its type,
 :attr:`~django.db.models.Field.null`, :attr:`~django.db.models.Field.unique`,
 :attr:`~django.db.models.Field.db_column` and other field attributes.
 
+The ``preserve_default`` argument indicates whether the field's default
+value is permanent and should be baked into the project state (``True``),
+or if it is temporary and just for this migration (``False``) - usually
+because the migration is altering a nullable field to a non-nullable one and
+needs a default value to put into existing rows. It does not effect the
+behavior of setting defaults in the database directly - Django never sets
+database defaults and always applies them in the Django ORM code.
+
 Note that not all changes are possible on all databases - for example, you
 cannot change a text-type field like ``models.TextField()`` into a number-type
 field like ``models.IntegerField()`` on most databases.
+
+.. versionchanged:: 1.7.1
+
+    The ``preserve_default`` argument was added.
 
 RenameField
 -----------
@@ -173,12 +207,17 @@ operation here so that the autodetector still has an up-to-date state of the
 model (otherwise, when you next run ``makemigrations``, it won't see any
 operation that adds that field and so will try to run it again).
 
+.. versionchanged:: 1.7.1
+
+    If you want to include literal percent signs in the query you don't need to
+    double them anymore.
+
 .. _sqlparse: https://pypi.python.org/pypi/sqlparse
 
 RunPython
 ---------
 
-.. class:: RunPython(code, reverse_code=None)
+.. class:: RunPython(code, reverse_code=None, atomic=True)
 
 Runs custom Python code in a historical context. ``code`` (and ``reverse_code``
 if supplied) should be callable objects that accept two arguments; the first is
@@ -192,15 +231,18 @@ class in the migration file, and just pass it to ``RunPython``. Here's an
 example of using ``RunPython`` to create some initial objects on a ``Country``
 model::
 
-    # encoding: utf8
+    # -*- coding: utf-8 -*-
     from django.db import models, migrations
 
     def forwards_func(apps, schema_editor):
         # We get the model from the versioned app registry;
         # if we directly import it, it'll be the wrong version
         Country = apps.get_model("myapp", "Country")
-        Country.objects.create(name="USA", code="us")
-        Country.objects.create(name="France", code="fr")
+        db_alias = schema_editor.connection.alias
+        Country.objects.using(db_alias).bulk_create([
+            Country(name="USA", code="us"),
+            Country(name="France", code="fr"),
+        ])
 
     class Migration(migrations.Migration):
 
@@ -229,6 +271,20 @@ either doing it outside the scope of the Django model system (e.g. triggers)
 or that you use :class:`SeparateDatabaseAndState` to add in operations that will
 reflect your changes to the model state - otherwise, the versioned ORM and
 the autodetector will stop working correctly.
+
+By default, ``RunPython`` will run its contents inside a transaction even
+on databases that do not support DDL transactions (for example, MySQL and
+Oracle). This should be safe, but may cause a crash if you attempt to use
+the ``schema_editor`` provided on these backends; in this case, please
+set ``atomic=False``.
+
+.. warning::
+
+    ``RunPython`` does not magically alter the connection of the models for you;
+    any model methods you call will go to the default database unless you
+    give them the current database alias (available from
+    ``schema_editor.connection.alias``, where ``schema_editor`` is the second
+    argument to your function).
 
 SeparateDatabaseAndState
 ------------------------

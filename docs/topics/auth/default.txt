@@ -7,10 +7,9 @@ Using the Django authentication system
 This document explains the usage of Django's authentication system in its
 default configuration. This configuration has evolved to serve the most common
 project needs, handling a reasonably wide range of tasks, and has a careful
-implementation of passwords and permissions, and can handle many projects as
-is.  For projects where authentication needs differ from the default, Django
-supports extensive :doc:`extension and customization
-</topics/auth/customizing>` of authentication.
+implementation of passwords and permissions. For projects where authentication
+needs differ from the default, Django supports extensive :doc:`extension and
+customization </topics/auth/customizing>` of authentication.
 
 Django authentication provides both authentication and authorization together
 and is generally referred to as the authentication system, as these features
@@ -66,9 +65,7 @@ interactively <auth-admin>`.
 Creating superusers
 -------------------
 
-:djadmin:`manage.py migrate <migrate>` prompts you to create a superuser the
-first time you run it with ``'django.contrib.auth'`` installed. If you need to
-create a superuser at a later date, you can use a command line utility::
+Create superusers using the :djadmin:`createsuperuser` command::
 
     $ python manage.py createsuperuser --username=joe --email=joe@example.com
 
@@ -1034,6 +1031,11 @@ patterns.
 
     **URL name:** ``password_reset_done``
 
+    .. note::
+
+        If the email address provided does not exist in the system, the user is inactive, or has an unusable password,
+        the user will still be redirected to this view but no email will be sent.
+
     **Optional arguments:**
 
     * ``template_name``: The full name of a template to use.
@@ -1105,12 +1107,12 @@ patterns.
    * ``template_name``: The full name of a template to display the view.
      Defaults to :file:`registration/password_reset_complete.html`.
 
-    * ``current_app``: A hint indicating which application contains the current
-      view. See the :ref:`namespaced URL resolution strategy
-      <topics-http-reversing-url-namespaces>` for more information.
+   * ``current_app``: A hint indicating which application contains the current
+     view. See the :ref:`namespaced URL resolution strategy
+     <topics-http-reversing-url-namespaces>` for more information.
 
-    * ``extra_context``: A dictionary of context data that will be added to the
-      default context data passed to the template.
+   * ``extra_context``: A dictionary of context data that will be added to the
+     default context data passed to the template.
 
 Helper functions
 ----------------
@@ -1170,37 +1172,37 @@ provides several built-in forms located in :mod:`django.contrib.auth.forms`:
 
     .. method:: confirm_login_allowed(user)
 
-    .. versionadded:: 1.7
+        .. versionadded:: 1.7
 
-    By default, ``AuthenticationForm`` rejects users whose ``is_active`` flag
-    is set to ``False``. You may override this behavior with a custom policy to
-    determine which users can log in. Do this with a custom form that subclasses
-    ``AuthenticationForm`` and overrides the ``confirm_login_allowed`` method.
-    This method should raise a :exc:`~django.core.exceptions.ValidationError`
-    if the given user may not log in.
+        By default, ``AuthenticationForm`` rejects users whose ``is_active`` flag
+        is set to ``False``. You may override this behavior with a custom policy to
+        determine which users can log in. Do this with a custom form that subclasses
+        ``AuthenticationForm`` and overrides the ``confirm_login_allowed`` method.
+        This method should raise a :exc:`~django.core.exceptions.ValidationError`
+        if the given user may not log in.
 
-    For example, to allow all users to log in, regardless of "active" status::
+        For example, to allow all users to log in, regardless of "active" status::
 
-        from django.contrib.auth.forms import AuthenticationForm
+            from django.contrib.auth.forms import AuthenticationForm
 
-        class AuthenticationFormWithInactiveUsersOkay(AuthenticationForm):
-            def confirm_login_allowed(self, user):
-                pass
+            class AuthenticationFormWithInactiveUsersOkay(AuthenticationForm):
+                def confirm_login_allowed(self, user):
+                    pass
 
-    Or to allow only some active users to log in::
+        Or to allow only some active users to log in::
 
-        class PickyAuthenticationForm(AuthenticationForm):
-            def confirm_login_allowed(self, user):
-                if not user.is_active:
-                    raise forms.ValidationError(
-                        _("This account is inactive."),
-                        code='inactive',
-                    )
-                if user.username.startswith('b'):
-                    raise forms.ValidationError(
-                        _("Sorry, accounts starting with 'b' aren't welcome here."),
-                        code='no_b_users',
-                    )
+            class PickyAuthenticationForm(AuthenticationForm):
+                def confirm_login_allowed(self, user):
+                    if not user.is_active:
+                        raise forms.ValidationError(
+                            _("This account is inactive."),
+                            code='inactive',
+                        )
+                    if user.username.startswith('b'):
+                        raise forms.ValidationError(
+                            _("Sorry, accounts starting with 'b' aren't welcome here."),
+                            code='no_b_users',
+                        )
 
 .. class:: PasswordChangeForm
 
@@ -1213,7 +1215,7 @@ provides several built-in forms located in :mod:`django.contrib.auth.forms`:
 
 .. class:: SetPasswordForm
 
-    A form that lets a user change his/her password without entering the old
+    A form that lets a user change their password without entering the old
     password.
 
 .. class:: UserChangeForm
@@ -1231,7 +1233,7 @@ provides several built-in forms located in :mod:`django.contrib.auth.forms`:
 Authentication data in templates
 --------------------------------
 
-The currently logged-in user and his/her permissions are made available in the
+The currently logged-in user and their permissions are made available in the
 :doc:`template context </ref/templates/api>` when you use
 :class:`~django.template.RequestContext`.
 

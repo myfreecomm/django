@@ -11,7 +11,8 @@ from django.contrib.admin import widgets, helpers
 from django.contrib.admin import validation
 from django.contrib.admin.checks import (BaseModelAdminChecks, ModelAdminChecks,
     InlineModelAdminChecks)
-from django.contrib.admin.utils import (unquote, flatten_fieldsets,
+from django.contrib.admin.exceptions import DisallowedModelAdminToField
+from django.contrib.admin.utils import (quote, unquote, flatten_fieldsets,
     get_deleted_objects, model_format_dict, NestedObjects,
     lookup_needs_distinct)
 from django.contrib.admin.templatetags.admin_static import static
@@ -152,7 +153,6 @@ class BaseModelAdmin(six.with_metaclass(RenameBaseModelAdminMethods)):
             return cls.checks_class().check(cls, model, **kwargs)
 
     def __init__(self):
-        self._orig_formfield_overrides = self.formfield_overrides
         overrides = FORMFIELD_FOR_DBFIELD_DEFAULTS.copy()
         overrides.update(self.formfield_overrides)
         self.formfield_overrides = overrides
@@ -169,9 +169,6 @@ class BaseModelAdmin(six.with_metaclass(RenameBaseModelAdminMethods)):
         # If the field specifies choices, we don't need to look for special
         # admin widgets - we just need to use a select widget of some kind.
         if db_field.choices:
-            # see #19303 for an explanation of self._orig_formfield_overrides
-            if db_field.__class__ in self._orig_formfield_overrides:
-                kwargs = dict(self._orig_formfield_overrides[db_field.__class__], **kwargs)
             return self.formfield_for_choice_field(db_field, request, **kwargs)
 
         # ForeignKey or ManyToManyFields
@@ -416,7 +413,10 @@ class BaseModelAdmin(six.with_metaclass(RenameBaseModelAdminMethods)):
                     # since it's ignored in ChangeList.get_filters().
                     return True
                 model = field.rel.to
-                rel_name = field.rel.get_related_field().name
+                if hasattr(field.rel, 'get_related_field'):
+                    rel_name = field.rel.get_related_field().name
+                else:
+                    rel_name = None
             elif isinstance(field, RelatedObject):
                 model = field.model
                 rel_name = model._meta.pk.name
@@ -437,6 +437,40 @@ class BaseModelAdmin(six.with_metaclass(RenameBaseModelAdminMethods)):
             else:
                 valid_lookups.append(filter_item)
         return clean_lookup in valid_lookups
+
+    def to_field_allowed(self, request, to_field):
+        """
+        Returns True if the model associated with this admin should be
+        allowed to be referenced by the specified field.
+        """
+        opts = self.model._meta
+
+        try:
+            field = opts.get_field(to_field)
+        except FieldDoesNotExist:
+            return False
+
+        # Check whether this model is the origin of a M2M relationship
+        # in which case to_field has to be the pk on this model.
+        if opts.many_to_many and field.primary_key:
+            return True
+
+        # Make sure at least one of the models registered for this site
+        # references this field through a FK or a M2M relationship.
+        registered_models = set()
+        for model, admin in self.admin_site._registry.items():
+            registered_models.add(model)
+            for inline in admin.inlines:
+                registered_models.add(inline.model)
+
+        for related_object in (opts.get_all_related_objects(include_hidden=True) +
+                               opts.get_all_related_many_to_many_objects()):
+            related_model = related_object.model
+            if (any(issubclass(model, related_model) for model in registered_models) and
+                    related_object.field.rel.get_related_field() == field):
+                return True
+
+        return False
 
     def has_add_permission(self, request):
         """
@@ -1100,7 +1134,7 @@ class ModelAdmin(BaseModelAdmin):
             if post_url_continue is None:
                 post_url_continue = reverse('admin:%s_%s_change' %
                                             (opts.app_label, opts.model_name),
-                                            args=(pk_value,),
+                                            args=(quote(pk_value),),
                                             current_app=self.admin_site.name)
             post_url_continue = add_preserved_filters({'preserved_filters': preserved_filters, 'opts': opts}, post_url_continue)
             return HttpResponseRedirect(post_url_continue)
@@ -1329,6 +1363,10 @@ class ModelAdmin(BaseModelAdmin):
     @transaction.atomic
     def changeform_view(self, request, object_id=None, form_url='', extra_context=None):
 
+        to_field = request.POST.get(TO_FIELD_VAR, request.GET.get(TO_FIELD_VAR))
+        if to_field and not self.to_field_allowed(request, to_field):
+            raise DisallowedModelAdminToField("The field %s cannot be referenced." % to_field)
+
         model = self.model
         opts = model._meta
         add = object_id is None
@@ -1401,8 +1439,7 @@ class ModelAdmin(BaseModelAdmin):
             original=obj,
             is_popup=(IS_POPUP_VAR in request.POST or
                       IS_POPUP_VAR in request.GET),
-            to_field=request.POST.get(TO_FIELD_VAR,
-                                      request.GET.get(TO_FIELD_VAR)),
+            to_field=to_field,
             media=media,
             inline_admin_formsets=inline_formsets,
             errors=helpers.AdminErrorList(form, formsets),
@@ -1699,14 +1736,15 @@ class InlineModelAdmin(BaseModelAdmin):
     """
     Options for inline editing of ``model`` instances.
 
-    Provide ``name`` to specify the attribute name of the ``ForeignKey`` from
-    ``model`` to its parent. This is required if ``model`` has more than one
-    ``ForeignKey`` to its parent.
+    Provide ``fk_name`` to specify the attribute name of the ``ForeignKey``
+    from ``model`` to its parent. This is required if ``model`` has more than
+    one ``ForeignKey`` to its parent.
     """
     model = None
     fk_name = None
     formset = BaseInlineFormSet
     extra = 3
+    min_num = None
     max_num = None
     template = None
     verbose_name = None
@@ -1739,6 +1777,10 @@ class InlineModelAdmin(BaseModelAdmin):
         """Hook for customizing the number of extra inline forms."""
         return self.extra
 
+    def get_min_num(self, request, obj=None, **kwargs):
+        """Hook for customizing the min number of inline forms."""
+        return self.min_num
+
     def get_max_num(self, request, obj=None, **kwargs):
         """Hook for customizing the max number of extra inline forms."""
         return self.max_num
@@ -1758,8 +1800,8 @@ class InlineModelAdmin(BaseModelAdmin):
             # Take the custom ModelForm's Meta.exclude into account only if the
             # InlineModelAdmin doesn't define its own.
             exclude.extend(self.form._meta.exclude)
-        # if exclude is an empty list we use None, since that's the actual
-        # default
+        # If exclude is an empty list we use None, since that's the actual
+        # default.
         exclude = exclude or None
         can_delete = self.can_delete and self.has_delete_permission(request, obj)
         defaults = {
@@ -1770,6 +1812,7 @@ class InlineModelAdmin(BaseModelAdmin):
             "exclude": exclude,
             "formfield_callback": partial(self.formfield_for_dbfield, request=request),
             "extra": self.get_extra(request, obj, **kwargs),
+            "min_num": self.get_min_num(request, obj, **kwargs),
             "max_num": self.get_max_num(request, obj, **kwargs),
             "can_delete": can_delete,
         }

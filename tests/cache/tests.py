@@ -19,7 +19,7 @@ from django.core import management
 from django.core.cache import (cache, caches, CacheKeyWarning,
     InvalidCacheBackendError, DEFAULT_CACHE_ALIAS)
 from django.core.context_processors import csrf
-from django.db import connection, router, transaction
+from django.db import connection, connections, router, transaction
 from django.core.cache.utils import make_template_fragment_key
 from django.http import HttpResponse, StreamingHttpResponse
 from django.middleware.cache import (FetchFromCacheMiddleware,
@@ -286,6 +286,8 @@ class BaseCacheTests(object):
         cache.set("hello1", "goodbye1")
         self.assertEqual(cache.has_key("hello1"), True)
         self.assertEqual(cache.has_key("goodbye1"), False)
+        cache.set("no_expiry", "here", None)
+        self.assertEqual(cache.has_key("no_expiry"), True)
 
     def test_in(self):
         # The in operator can be used to inspect cache contents
@@ -987,9 +989,12 @@ class CreateCacheTableForDBCacheTests(TestCase):
             # cache table should be created on 'other'
             # Queries:
             #   1: check table doesn't already exist
-            #   2: create the table
-            #   3: create the index
-            with self.assertNumQueries(3, using='other'):
+            #   2: create savepoint (if transactional DDL is supported)
+            #   3: create the table
+            #   4: create the index
+            #   5: release savepoint (if transactional DDL is supported)
+            num = 5 if connections['other'].features.can_rollback_ddl else 3
+            with self.assertNumQueries(num, using='other'):
                 management.call_command('createcachetable',
                                         database='other',
                                         verbosity=0, interactive=False)
@@ -1074,6 +1079,12 @@ for _cache_params in settings.CACHES.values():
     if _cache_params['BACKEND'].startswith('django.core.cache.backends.memcached.'):
         memcached_params = _cache_params
 
+memcached_never_expiring_params = memcached_params.copy()
+memcached_never_expiring_params['TIMEOUT'] = None
+
+memcached_far_future_params = memcached_params.copy()
+memcached_far_future_params['TIMEOUT'] = 31536000  # 60*60*24*365, 1 year
+
 
 @unittest.skipUnless(memcached_params, "memcached not available")
 @override_settings(CACHES=caches_setting_for_tests(base=memcached_params))
@@ -1105,6 +1116,18 @@ class MemcachedCacheTests(BaseCacheTests, TestCase):
                 self.assertEqual(caches[cache_key]._cache.pickleProtocol,
                                  pickle.HIGHEST_PROTOCOL)
 
+    @override_settings(CACHES=caches_setting_for_tests(base=memcached_never_expiring_params))
+    def test_default_never_expiring_timeout(self):
+        # Regression test for #22845
+        cache.set('infinite_foo', 'bar')
+        self.assertEqual(cache.get('infinite_foo'), 'bar')
+
+    @override_settings(CACHES=caches_setting_for_tests(base=memcached_far_future_params))
+    def test_default_far_future_timeout(self):
+        # Regression test for #22845
+        cache.set('future_foo', 'bar')
+        self.assertEqual(cache.get('future_foo'), 'bar')
+
     def test_cull(self):
         # culling isn't implemented, memcached deals with it.
         pass
@@ -1129,8 +1152,9 @@ class FileBasedCacheTests(BaseCacheTests, TestCase):
             cache_params.update({'LOCATION': self.dirname})
 
     def tearDown(self):
-        shutil.rmtree(self.dirname)
         super(FileBasedCacheTests, self).tearDown()
+        # Call parent first, as cache.clear() may recreate cache base directory
+        shutil.rmtree(self.dirname)
 
     def test_ignores_non_cache_files(self):
         fname = os.path.join(self.dirname, 'not-a-cache-file')

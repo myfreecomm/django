@@ -61,6 +61,7 @@ answer newbie questions, and generally made Django that much better:
     Mathieu Agopian <mathieu.agopian@gmail.com>
     Roberto Aguilar <roberto@baremetal.io>
     ajs <adi@sieker.info>
+    Akis Kesoglou <akiskesoglou@gmail.com>
     alang@bright-green.com
     A S Alam <aalam@users.sf.net>
     Andi Albrecht <albrecht.andi@gmail.com>
@@ -136,6 +137,7 @@ answer newbie questions, and generally made Django that much better:
     btoll@bestweb.net
     Jonathan Buchanan <jonathan.buchanan@gmail.com>
     Jacob Burch <jacobburch@gmail.com>
+    Stephen Burrows <stephen.r.burrows@gmail.com>
     Max Burstein <http://maxburstein.com>
     Keith Bussell <kbussell@gmail.com>
     C8E
@@ -418,6 +420,7 @@ answer newbie questions, and generally made Django that much better:
     Javier Mansilla <javimansilla@gmail.com>
     masonsimon+django@gmail.com
     Manuzhai
+    Moayad Mardini <moayad.m@gmail.com>
     Petr Marhoun <petr.marhoun@gmail.com>
     Petar Marić <http://www.petarmaric.com/>
     Nuno Mariz <nmariz@gmail.com>
@@ -546,7 +549,9 @@ answer newbie questions, and generally made Django that much better:
     Ivan Sagalaev (Maniac) <http://www.softwaremaniacs.org/>
     Vinay Sajip <vinay_sajip@yahoo.co.uk>
     Bartolome Sanchez Salado <i42sasab@uco.es>
+    Nick Sandford <nick.sandford@gmail.com>
     Mark Sandstrom <mark@deliciouslynerdy.com>
+    Lee Sanghyuck <shlee322@elab.kr>
     Kadesarin Sanjek
     Tim Saylor <tim.saylor@gmail.com>
     Massimo Scamarcia <massimo.scamarcia@gmail.com>
@@ -672,6 +677,7 @@ answer newbie questions, and generally made Django that much better:
     Jakub Wiśniowski <restless.being@gmail.com>
     Maciej Wiśniowski <pigletto@gmail.com>
     wojtek
+    Colin Wood <cwood06@gmail.com>
     Marcin Wróbel
     Jason Yan <tailofthesun@gmail.com>
     Lars Yencken <lars.yencken@gmail.com>
@@ -696,7 +702,7 @@ A big THANK YOU goes to:
 
     Ian Bicking for convincing Adrian to ditch code generation.
 
-    Mark Pilgrim for "Dive Into Python" (http://diveintopython.net,
+    Mark Pilgrim for "Dive Into Python" (http://www.diveintopython.net,
     http://www.diveintopython3.net).
 
     Guido van Rossum for creating Python.

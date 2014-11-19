@@ -61,12 +61,18 @@ should put in this file, and what else you can add to it.
 
 .. warning::
 
-   If multiple Django sites are run in a single mod_wsgi process, all of them
-   will use the settings of whichever one happens to run first. This can be
-   solved with a minor edit to ``wsgi.py`` (see comment in the file for
-   details), or by :ref:`using mod_wsgi daemon mode<daemon-mode>` and ensuring
-   that each site runs in its own daemon process.
+    If multiple Django sites are run in a single mod_wsgi process, all of them
+    will use the settings of whichever one happens to run first. This can be
+    solved by changing::
 
+        os.environ.setdefault("DJANGO_SETTINGS_MODULE", "{{ project_name }}.settings")
+
+    in ``wsgi.py``, to::
+
+        os.environ["DJANGO_SETTINGS_MODULE"] = "{{ project_name }}.settings"
+
+    or by :ref:`using mod_wsgi daemon mode<daemon-mode>` and ensuring that each
+    site runs in its own daemon process.
 
 Using a virtualenv
 ==================
@@ -135,8 +141,6 @@ will be served using mod_wsgi::
 
     Alias /robots.txt /path/to/mysite.com/static/robots.txt
     Alias /favicon.ico /path/to/mysite.com/static/favicon.ico
-
-    AliasMatch ^/([^/]*\.css) /path/to/mysite.com/static/styles/$1
 
     Alias /media/ /path/to/mysite.com/media/
     Alias /static/ /path/to/mysite.com/static/
@@ -219,7 +223,7 @@ If you're taking advantage of the internationalization features of Django (see
 ensure that the environment used to start Apache is configured to accept
 non-ASCII file names. If your environment is not correctly configured, you
 will trigger ``UnicodeEncodeError`` exceptions when calling functions like
-``os.path()`` on filenames that contain non-ASCII characters.
+the ones in :mod:`os.path` on filenames that contain non-ASCII characters.
 
 To avoid these problems, the environment used to start Apache should contain
 settings analogous to the following::

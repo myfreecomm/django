@@ -1,3 +1,4 @@
+à
 Aalto
 accessor
 Aceh
@@ -152,6 +153,7 @@ dirmod
 distro
 divisibleby
 django
+Django's
 djangojs
 djangonaut
 djangoproject
@@ -242,6 +244,7 @@ gunicorn
 Gunicorn
 gz
 GZip
+gzipped
 hackish
 handheld
 hardcode
@@ -519,6 +522,7 @@ screenshots
 sdist
 semimajor
 semiminor
+serializability
 serializable
 serializer
 serializers
@@ -633,6 +637,8 @@ ubuntu
 Ubuntuusers
 ul
 umask
+unassigning
+unapplied
 unapply
 unapplying
 uncheck

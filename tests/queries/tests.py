@@ -27,7 +27,7 @@ from .models import (
     BaseA, FK1, Identifier, Program, Channel, Page, Paragraph, Chapter, Book,
     MyObject, Order, OrderItem, SharedConnection, Task, Staff, StaffUser,
     CategoryRelationship, Ticket21203Parent, Ticket21203Child, Person,
-    Company, Employment, CustomPk, CustomPkTag)
+    Company, Employment, CustomPk, CustomPkTag, Classroom, School, Student)
 
 
 class BaseQuerysetTest(TestCase):
@@ -1396,6 +1396,18 @@ class Queries4Tests(BaseQuerysetTest):
         qs = Author.objects.order_by().order_by('name')
         self.assertTrue('ORDER BY' in qs.query.get_compiler(qs.db).as_sql()[0])
 
+    def test_order_by_reverse_fk(self):
+        # It is possible to order by reverse of foreign key, although that can lead
+        # to duplicate results.
+        c1 = SimpleCategory.objects.create(name="category1")
+        c2 = SimpleCategory.objects.create(name="category2")
+        CategoryItem.objects.create(category=c1)
+        CategoryItem.objects.create(category=c2)
+        CategoryItem.objects.create(category=c1)
+        self.assertQuerysetEqual(
+            SimpleCategory.objects.order_by('categoryitem', 'pk'),
+            [c1, c2, c1], lambda x: x)
+
     def test_ticket10181(self):
         # Avoid raising an EmptyResultSet if an inner query is probably
         # empty (and hence, not executed).
@@ -1697,7 +1709,7 @@ class NullableRelOrderingTests(TestCase):
         qs = qs.order_by('others__single__name')
         # The ordering by others__single__pk will add one new join (to single)
         # and that join must be LEFT join. The already existing join to related
-        # objects must be kept INNER. So, we have both a INNER and a LEFT join
+        # objects must be kept INNER. So, we have both an INNER and a LEFT join
         # in the query.
         self.assertEqual(str(qs.query).count('LEFT'), 1)
         self.assertEqual(str(qs.query).count('INNER'), 1)
@@ -2116,6 +2128,26 @@ class ValuesQuerysetTests(BaseQuerysetTest):
             select={'value_plus_one': 'num+1', 'value_minus_one': 'num-1'},
             order_by=['value_minus_one'])
         qs = qs.values('num')
+
+    def test_extra_select_params_values_order_in_extra(self):
+        # testing for 23259 issue
+        qs = Number.objects.extra(
+            select={'value_plus_x': 'num+%s'},
+            select_params=[1],
+            order_by=['value_plus_x'])
+        qs = qs.filter(num=72)
+        qs = qs.values('num')
+        self.assertQuerysetEqual(qs, [{'num': 72}], self.identity)
+
+    def test_extra_multiple_select_params_values_order_by(self):
+        # testing for 23259 issue
+        qs = Number.objects.extra(select=OrderedDict([('value_plus_x', 'num+%s'),
+                                                     ('value_minus_x', 'num-%s')]),
+                                  select_params=(72, 72))
+        qs = qs.order_by('value_minus_x')
+        qs = qs.filter(num=1)
+        qs = qs.values('num')
+        self.assertQuerysetEqual(qs, [], self.identity)
 
     def test_extra_values_list(self):
         # testing for ticket 14930 issues
@@ -3344,3 +3376,18 @@ class ReverseM2MCustomPkTests(TestCase):
         self.assertQuerysetEqual(
             CustomPkTag.objects.filter(custom_pk=cp1), [cpt1],
             lambda x: x)
+
+
+class Ticket22429Tests(TestCase):
+    def test_ticket_22429(self):
+        sc1 = School.objects.create()
+        st1 = Student.objects.create(school=sc1)
+
+        sc2 = School.objects.create()
+        st2 = Student.objects.create(school=sc2)
+
+        cr = Classroom.objects.create(school=sc1)
+        cr.students.add(st1)
+
+        queryset = Student.objects.filter(~Q(classroom__school=F('school')))
+        self.assertQuerysetEqual(queryset, [st2], lambda x: x)

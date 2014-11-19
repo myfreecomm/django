@@ -305,6 +305,7 @@ class BaseCommand(object):
         if options.get('no_color'):
             self.style = no_style()
             self.stderr = OutputWrapper(options.get('stderr', sys.stderr))
+            os.environ[str("DJANGO_COLORS")] = str("nocolor")
         else:
             self.stderr = OutputWrapper(options.get('stderr', sys.stderr), self.style.ERROR)
 
@@ -331,7 +332,7 @@ class BaseCommand(object):
 
         try:
             if (self.requires_system_checks and
-                    not options.get('skip_validation') and  # This will be removed at the end of deprecation proccess for `skip_validation`.
+                    not options.get('skip_validation') and  # This will be removed at the end of deprecation process for `skip_validation`.
                     not options.get('skip_checks')):
                 self.check()
             output = self.handle(*args, **options)

@@ -1,3 +1,5 @@
+from __future__ import unicode_literals
+
 from .base import Operation
 
 
@@ -22,7 +24,7 @@ class SeparateDatabaseAndState(Operation):
         for database_operation in self.database_operations:
             to_state = from_state.clone()
             database_operation.state_forwards(app_label, to_state)
-            database_operation.database_forwards(self, app_label, schema_editor, from_state, to_state)
+            database_operation.database_forwards(app_label, schema_editor, from_state, to_state)
             from_state = to_state
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state):
@@ -34,7 +36,7 @@ class SeparateDatabaseAndState(Operation):
                 dbop.state_forwards(app_label, to_state)
             from_state = base_state.clone()
             database_operation.state_forwards(app_label, from_state)
-            database_operation.database_backwards(self, app_label, schema_editor, from_state, to_state)
+            database_operation.database_backwards(app_label, schema_editor, from_state, to_state)
 
     def describe(self):
         return "Custom state/database change combination"
@@ -64,14 +66,14 @@ class RunSQL(Operation):
     def database_forwards(self, app_label, schema_editor, from_state, to_state):
         statements = schema_editor.connection.ops.prepare_sql_script(self.sql)
         for statement in statements:
-            schema_editor.execute(statement)
+            schema_editor.execute(statement, params=None)
 
     def database_backwards(self, app_label, schema_editor, from_state, to_state):
         if self.reverse_sql is None:
             raise NotImplementedError("You cannot reverse this operation")
         statements = schema_editor.connection.ops.prepare_sql_script(self.reverse_sql)
         for statement in statements:
-            schema_editor.execute(statement)
+            schema_editor.execute(statement, params=None)
 
     def describe(self):
         return "Raw SQL operation"
@@ -84,7 +86,8 @@ class RunPython(Operation):
 
     reduces_to_sql = False
 
-    def __init__(self, code, reverse_code=None):
+    def __init__(self, code, reverse_code=None, atomic=True):
+        self.atomic = atomic
         # Forwards code
         if not callable(code):
             raise ValueError("RunPython must be supplied with a callable")

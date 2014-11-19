@@ -278,8 +278,9 @@ class RequestFactory(object):
     def get(self, path, data=None, secure=False, **extra):
         "Construct a GET request."
 
+        data = {} if data is None else data
         r = {
-            'QUERY_STRING': urlencode(data or {}, doseq=True),
+            'QUERY_STRING': urlencode(data, doseq=True),
         }
         r.update(extra)
         return self.generic('GET', path, secure=secure, **r)
@@ -288,7 +289,8 @@ class RequestFactory(object):
              secure=False, **extra):
         "Construct a POST request."
 
-        post_data = self._encode_data(data or {}, content_type)
+        data = {} if data is None else data
+        post_data = self._encode_data(data, content_type)
 
         return self.generic('POST', path, post_data, content_type,
                             secure=secure, **extra)
@@ -296,8 +298,9 @@ class RequestFactory(object):
     def head(self, path, data=None, secure=False, **extra):
         "Construct a HEAD request."
 
+        data = {} if data is None else data
         r = {
-            'QUERY_STRING': urlencode(data or {}, doseq=True),
+            'QUERY_STRING': urlencode(data, doseq=True),
         }
         r.update(extra)
         return self.generic('HEAD', path, secure=secure, **r)
@@ -587,16 +590,13 @@ class Client(RequestFactory):
 
         Causes the authenticated user to be logged out.
         """
-        from django.contrib.auth import get_user_model, logout
+        from django.contrib.auth import get_user, logout
 
         request = HttpRequest()
         engine = import_module(settings.SESSION_ENGINE)
-        UserModel = get_user_model()
         if self.session:
             request.session = self.session
-            uid = self.session.get("_auth_user_id")
-            if uid:
-                request.user = UserModel._default_manager.get(pk=uid)
+            request.user = get_user(request)
         else:
             request.session = engine.SessionStore()
         logout(request)

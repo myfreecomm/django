@@ -443,10 +443,12 @@ If you point the test client at a view that raises an exception, that exception
 will be visible in the test case. You can then use a standard ``try ... except``
 block or :meth:`~unittest.TestCase.assertRaises` to test for exceptions.
 
-The only exceptions that are not visible to the test client are ``Http404``,
-``PermissionDenied`` and ``SystemExit``. Django catches these exceptions
-internally and converts them into the appropriate HTTP response codes. In these
-cases, you can check ``response.status_code`` in your test.
+The only exceptions that are not visible to the test client are
+:class:`~django.http.Http404`,
+:class:`~django.core.exceptions.PermissionDenied`, :exc:`SystemExit`, and
+:class:`~django.core.exceptions.SuspiciousOperation`. Django catches these
+exceptions internally and converts them into the appropriate HTTP response
+codes. In these cases, you can check ``response.status_code`` in your test.
 
 Persistent state
 ~~~~~~~~~~~~~~~~
@@ -605,16 +607,27 @@ to test the effects of commit and rollback:
   guarantees that the rollback at the end of the test restores the database to
   its initial state.
 
-  When running on a database that does not support rollback (e.g. MySQL with the
-  MyISAM storage engine), ``TestCase`` falls back to initializing the database
-  by truncating tables and reloading initial data.
+.. warning::
+
+  ``TestCase`` running on a database that does not support rollback (e.g. MySQL with the
+  MyISAM storage engine), and all instances of ``TransactionTestCase``, will
+  roll back at the end of the test by deleting all data from the test database
+  and reloading initial data for apps without migrations.
+
+  Apps with migrations :ref:`will not see their data reloaded <test-case-serialized-rollback>`;
+  if you need this functionality (for example, third-party apps should enable
+  this) you can set ``serialized_rollback = True`` inside the
+  ``TestCase`` body.
 
 .. warning::
 
     While ``commit`` and ``rollback`` operations still *appear* to work when
     used in ``TestCase``, no actual commit or rollback will be performed by the
     database. This can cause your tests to pass or fail unexpectedly. Always
-    use ``TransactionTestCase`` when testing transactional behavior.
+    use ``TransactionTestCase`` when testing transactional behavior or any code
+    that can't normally be executed in autocommit mode
+    (:meth:`~django.db.models.query.QuerySet.select_for_update()` is an
+    example).
 
 ``TransactionTestCase`` inherits from :class:`~django.test.SimpleTestCase`.
 
@@ -734,7 +747,7 @@ Finally, you may run the test as follows:
 
 .. code-block:: bash
 
-    ./manage.py test myapp.MySeleniumTests.test_login
+    ./manage.py test myapp.tests.MySeleniumTests.test_login
 
 This example will automatically open Firefox then go to the login page, enter
 the credentials and press the "Log in" button. Selenium offers other drivers in
@@ -762,9 +775,9 @@ out the `full reference`_ for more details.
 
     If you use the ``staticfiles`` app in your project and need to perform live
     testing then you might want to consider using the
-    :class:`~django.contrib.staticfiles.testing.StaticLiveServerCase` subclass
-    shipped with it instead because it's the one that implements the original
-    behavior now. See :ref:`the relevant documentation
+    :class:`~django.contrib.staticfiles.testing.StaticLiveServerTestCase`
+    subclass shipped with it instead because it's the one that implements the
+    original behavior now. See :ref:`the relevant documentation
     <staticfiles-testing-support>` for more details.
 
 .. note::
@@ -1020,6 +1033,12 @@ If ``multi_db=True``, fixtures are loaded into all databases.
 
 Overriding settings
 ~~~~~~~~~~~~~~~~~~~
+
+.. warning::
+
+    Use the functions below to temporarily alter the value of settings in tests.
+    Don't manipulate ``django.conf.settings`` directly as Django won't restore
+    the original values after such manipulations.
 
 .. method:: SimpleTestCase.settings()
 
@@ -1337,15 +1356,23 @@ your test suite.
     You can use this as a context manager in the same way as
     :meth:`~SimpleTestCase.assertTemplateUsed`.
 
-.. method:: SimpleTestCase.assertRedirects(response, expected_url, status_code=302, target_status_code=200, msg_prefix='', fetch_redirect_response=True)
+.. method:: SimpleTestCase.assertRedirects(response, expected_url, status_code=302, target_status_code=200, host=None, msg_prefix='', fetch_redirect_response=True)
 
-    Asserts that the response return a ``status_code`` redirect status, it
-    redirected to ``expected_url`` (including any GET data), and the final
-    page was received with ``target_status_code``.
+    Asserts that the response returned a ``status_code`` redirect status,
+    redirected to ``expected_url`` (including any ``GET`` data), and that the
+    final page was received with ``target_status_code``.
 
     If your request used the ``follow`` argument, the ``expected_url`` and
     ``target_status_code`` will be the url and status code for the final
     point of the redirect chain.
+
+    The ``host`` argument sets a default host if ``expected_url`` doesn't
+    include one (e.g. ``"/bar/"``).  If ``expected_url`` is an absolute URL that
+    includes a host (e.g. ``"http://testhost/bar/"``), the ``host`` parameter
+    will be ignored. Note that the test client doesn't support fetching external
+    URLs, but the parameter may be useful if you are testing with a custom HTTP
+    host (for example, initializing the test client with
+    ``Client(HTTP_HOST="testhost")``.
 
     .. versionadded:: 1.7
 

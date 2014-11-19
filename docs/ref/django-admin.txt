@@ -354,6 +354,11 @@ needed.
 ``inspectdb`` works with PostgreSQL, MySQL and SQLite. Foreign-key detection
 only works in PostgreSQL and with certain types of MySQL tables.
 
+Django doesn't create database defaults when a
+:attr:`~django.db.models.Field.default` is specified on a model field.
+Similarly, database defaults aren't translated to model field defaults or
+detected in any fashion by ``inspectdb``.
+
 By default, ``inspectdb`` creates unmanaged models. That is, ``managed = False``
 in the model's ``Meta`` class tells Django not to manage each table's creation,
 modification, and deletion. If you do want to allow Django to manage the
@@ -650,6 +655,19 @@ for advanced users and should not be used unless you are familiar with
 the migration format, migration operations, and the dependencies between
 your migrations.
 
+.. django-admin-option:: --dry-run
+
+The ``--dry-run`` option shows what migrations would be made without
+actually writing any migrations files to disk. Using this option along with
+``--verbosity 3`` will also show the complete migrations files that would be
+written.
+
+.. django-admin-option:: --merge
+
+The ``--merge`` option enables fixing of migration conflicts. The
+:djadminopt:`--noinput` option may be provided to suppress user prompts during
+a merge.
+
 migrate [<app_label> [<migrationname>]]
 ---------------------------------------
 
@@ -671,7 +689,36 @@ The behavior of this command changes depending on the arguments provided:
 * ``<app_label> <migrationname>``: Brings the database schema to a state where it
   would have just run the given migration, but no further - this may involve
   unapplying migrations if you have previously migrated past the named
-  migration. Use the name `zero` to unapply all migrations for an app.
+  migration. Use the name ``zero`` to unapply all migrations for an app.
+
+Unlike ``syncdb``, this command does not prompt you to create a superuser if
+one doesn't exist (assuming you are using :mod:`django.contrib.auth`). Use
+:djadmin:`createsuperuser` to do that if you wish.
+
+The :djadminopt:`--database` option can be used to specify the database to
+migrate.
+
+.. django-admin-option:: --fake
+
+The ``--fake`` option tells Django to mark the migrations as having been
+applied or unapplied, but without actually running the SQL to change your
+database schema.
+
+This is intended for advanced users to manipulate the
+current migration state directly if they're manually applying changes;
+be warned that using ``--fake`` runs the risk of putting the migration state
+table into a state where manual recovery will be needed to make migrations
+run correctly.
+
+.. django-admin-option:: --list, -l
+
+The ``--list`` option will list all of the apps Django knows about, the
+migrations available for each app and if they are applied or not (marked by
+an ``[X]`` next to the migration name).
+
+Apps without migrations are also included in the list, but will have
+``(no migrations)`` printed under them.
+
 
 runfcgi [options]
 -----------------
@@ -791,7 +838,7 @@ Write stderr to the *FILE* file.
 ``umask=UMASK``
 
 Umask to use when daemonizing. The value is interpreted as an octal number
-(default value is ``022``).
+(default value is ``0o22``).
 
 Example usage::
 
@@ -864,6 +911,9 @@ A hostname containing ASCII-only characters can also be used.
 If the :doc:`staticfiles</ref/contrib/staticfiles>` contrib app is enabled
 (default in new projects) the :djadmin:`runserver` command will be overridden
 with its own :ref:`runserver<staticfiles-runserver>` command.
+
+If :djadmin:`migrate` was not previousy executed, the table that stores the
+history of migrations is created at first run of ``runserver``.
 
 .. django-admin-option:: --noreload
 
@@ -1005,6 +1055,13 @@ specify initial data.
 The :djadminopt:`--database` option can be used to specify the database for
 which to print the SQL.
 
+.. versionchanged:: 1.7
+
+    The ``sql*`` management commands now respect the ``allow_migrate()`` method
+    of :setting:`DATABASE_ROUTERS`. If you have models synced to non-default
+    databases, use the :djadminopt:`--database` flag to get SQL for those
+    models (previously they would always be included in the output).
+
 sqlclear <app_label app_label ...>
 ----------------------------------
 
@@ -1080,6 +1137,8 @@ sqlmigrate <app_label> <migrationname>
 Prints the SQL for the named migration. This requires an active database
 connection, which it will use to resolve constraint names; this means you must
 generate the SQL against a copy of the database you wish to later apply it on.
+
+Note that ``sqlmigrate`` doesn't colorize its output.
 
 The :djadminopt:`--database` option can be used to specify the database for
 which to generate the SQL.
@@ -1409,9 +1468,8 @@ This command is only available if Django's :doc:`authentication system
 </topics/auth/index>` (``django.contrib.auth``) is installed.
 
 Creates a superuser account (a user who has all permissions). This is
-useful if you need to create an initial superuser account but did not
-do so during the first :djadmin:`migrate`, or if you need to programmatically
-generate superuser accounts for your site(s).
+useful if you need to create an initial superuser account or if you need to
+programmatically generate superuser accounts for your site(s).
 
 When run interactively, this command will prompt for a password for
 the new superuser account. When run non-interactively, no password
@@ -1503,7 +1561,7 @@ variable.
 Note that this option is unnecessary in ``manage.py``, because it takes care of
 setting the Python path for you.
 
-.. _import search path: http://diveintopython.net/getting_to_know_python/everything_is_an_object.html
+.. _import search path: http://www.diveintopython.net/getting_to_know_python/everything_is_an_object.html
 
 .. django-admin-option:: --settings
 
@@ -1709,7 +1767,7 @@ Support for color-coded output from ``django-admin.py`` / ``manage.py``
 utilities on Windows by relying on the ANSICON application was added in Django
 1.7.
 
-.. _ANSICON: http://adoxa.hostmyway.net/ansicon/
+.. _ANSICON: http://adoxa.altervista.org/ansicon/
 
 Bash completion
 ---------------

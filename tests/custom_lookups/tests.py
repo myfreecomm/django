@@ -1,13 +1,14 @@
 from __future__ import unicode_literals
 
-from datetime import date
+from datetime import date, datetime
+import time
 import unittest
 
 from django.core.exceptions import FieldError
 from django.db import models
 from django.db import connection
-from django.test import TestCase
-from .models import Author
+from django.test import TestCase, override_settings
+from .models import Author, MySQLUnixTimestamp
 
 
 class Div3Lookup(models.Lookup):
@@ -46,7 +47,7 @@ class YearTransform(models.Transform):
         return connection.ops.date_extract_sql('year', lhs_sql), params
 
     @property
-    def output_type(self):
+    def output_field(self):
         return models.IntegerField()
 
 
@@ -89,6 +90,47 @@ class YearLte(models.lookups.LessThanOrEqual):
 YearTransform.register_lookup(YearLte)
 
 
+class SQLFunc(models.Lookup):
+    def __init__(self, name, *args, **kwargs):
+        super(SQLFunc, self).__init__(*args, **kwargs)
+        self.name = name
+
+    def as_sql(self, qn, connection):
+        return '%s()', [self.name]
+
+    @property
+    def output_field(self):
+        return CustomField()
+
+
+class SQLFuncFactory(object):
+
+    def __init__(self, name):
+        self.name = name
+
+    def __call__(self, *args, **kwargs):
+        return SQLFunc(self.name, *args, **kwargs)
+
+
+class CustomField(models.TextField):
+
+    def get_lookup(self, lookup_name):
+        if lookup_name.startswith('lookupfunc_'):
+            key, name = lookup_name.split('_', 1)
+            return SQLFuncFactory(name)
+        return super(CustomField, self).get_lookup(lookup_name)
+
+    def get_transform(self, lookup_name):
+        if lookup_name.startswith('transformfunc_'):
+            key, name = lookup_name.split('_', 1)
+            return SQLFuncFactory(name)
+        return super(CustomField, self).get_transform(lookup_name)
+
+
+class CustomModel(models.Model):
+    field = CustomField()
+
+
 # We will register this class temporarily in the test method.
 
 
@@ -107,6 +149,18 @@ class InMonth(models.lookups.Lookup):
         return ("%s >= date_trunc('month', %s) and "
                 "%s < date_trunc('month', %s) + interval '1 months'" %
                 (lhs, rhs, lhs, rhs), params)
+
+
+class DateTimeTransform(models.Transform):
+    lookup_name = 'as_datetime'
+
+    @property
+    def output_field(self):
+        return models.DateTimeField()
+
+    def as_sql(self, qn, connection):
+        lhs, params = qn.compile(self.lhs)
+        return 'from_unixtime({})'.format(lhs), params
 
 
 class LookupTests(TestCase):
@@ -186,6 +240,21 @@ class LookupTests(TestCase):
                 [a2, a3], lambda x: x)
         finally:
             models.IntegerField._unregister_lookup(Div3Transform)
+
+
+@override_settings(USE_TZ=True)
+class DateTimeLookupTests(TestCase):
+    @unittest.skipUnless(connection.vendor == 'mysql', "MySQL specific SQL used")
+    def test_datetime_output_field(self):
+        models.PositiveIntegerField.register_lookup(DateTimeTransform)
+        try:
+            ut = MySQLUnixTimestamp.objects.create(timestamp=time.time())
+            y2k = datetime(2000, 1, 1)
+            self.assertQuerysetEqual(
+                MySQLUnixTimestamp.objects.filter(timestamp__as_datetime__gt=y2k),
+                [ut], lambda x: x)
+        finally:
+            models.PositiveIntegerField._unregister_lookup(DateTimeTransform)
 
 
 class YearLteTests(TestCase):
@@ -301,7 +370,7 @@ class TrackCallsYearTransform(YearTransform):
         return connection.ops.date_extract_sql('year', lhs_sql), params
 
     @property
-    def output_type(self):
+    def output_field(self):
         return models.IntegerField()
 
     def get_lookup(self, lookup_name):
@@ -341,3 +410,22 @@ class LookupTransformCallOrderTests(TestCase):
 
         finally:
             models.DateField._unregister_lookup(TrackCallsYearTransform)
+
+
+class CustomisedMethodsTests(TestCase):
+
+    def test_overridden_get_lookup(self):
+        q = CustomModel.objects.filter(field__lookupfunc_monkeys=3)
+        self.assertIn('monkeys()', str(q.query))
+
+    def test_overridden_get_transform(self):
+        q = CustomModel.objects.filter(field__transformfunc_banana=3)
+        self.assertIn('banana()', str(q.query))
+
+    def test_overridden_get_lookup_chain(self):
+        q = CustomModel.objects.filter(field__transformfunc_banana__lookupfunc_elephants=3)
+        self.assertIn('elephants()', str(q.query))
+
+    def test_overridden_get_transform_chain(self):
+        q = CustomModel.objects.filter(field__transformfunc_banana__transformfunc_pear=3)
+        self.assertIn('pear()', str(q.query))

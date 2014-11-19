@@ -6,6 +6,7 @@ from __future__ import unicode_literals
 
 from collections import OrderedDict
 import copy
+import datetime
 import warnings
 
 from django.core.exceptions import ValidationError, NON_FIELD_ERRORS
@@ -91,8 +92,8 @@ class DeclarativeFieldsMetaclass(MediaDefiningClass):
                 declared_fields.update(base.declared_fields)
 
             # Field shadowing.
-            for attr in base.__dict__.keys():
-                if attr in declared_fields:
+            for attr, value in base.__dict__.items():
+                if value is None and attr in declared_fields:
                     declared_fields.pop(attr)
 
         new_class.base_fields = declared_fields
@@ -142,7 +143,8 @@ class BaseForm(object):
         try:
             field = self.fields[name]
         except KeyError:
-            raise KeyError('Key %r not found in Form' % name)
+            raise KeyError(
+                "Key %r not found in '%s'" % (name, self.__class__.__name__))
         return BoundField(self, field, name)
 
     @property
@@ -555,7 +557,7 @@ class BoundField(object):
             name = self.html_name
         else:
             name = self.html_initial_name
-        return widget.render(name, self.value(), attrs=attrs)
+        return force_text(widget.render(name, self.value(), attrs=attrs))
 
     def as_text(self, attrs=None, **kwargs):
         """
@@ -589,6 +591,11 @@ class BoundField(object):
             data = self.form.initial.get(self.name, self.field.initial)
             if callable(data):
                 data = data()
+                # If this is an auto-generated default date, nix the
+                # microseconds for standardized handling. See #22502.
+                if (isinstance(data, (datetime.datetime, datetime.time)) and
+                        not getattr(self.field.widget, 'supports_microseconds', True)):
+                    data = data.replace(microsecond=0)
         else:
             data = self.field.bound_data(
                 self.data, self.form.initial.get(self.name, self.field.initial)

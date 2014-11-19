@@ -106,6 +106,8 @@ class Field(RegisterLookupMixin):
         'blank': _('This field cannot be blank.'),
         'unique': _('%(model_name)s with this %(field_label)s '
                     'already exists.'),
+        # Translators: The 'lookup_type' is one of 'date', 'year' or 'month'.
+        # Eg: "Title must be unique for pub_date year"
         'unique_for_date': _("%(field_label)s must be unique for "
                              "%(date_field_label)s %(lookup_type)s."),
     }
@@ -370,7 +372,7 @@ class Field(RegisterLookupMixin):
             path = path.replace("django.db.models.fields", "django.db.models")
         # Return basic info - other fields should override this.
         return (
-            self.name,
+            force_text(self.name, strings_only=True),
             path,
             [],
             keywords,
@@ -728,15 +730,18 @@ class Field(RegisterLookupMixin):
         """Returns choices with a default blank choices included, for use
         as SelectField choices for this field."""
         blank_defined = False
-        for choice, __ in self.choices:
-            if choice in ('', None):
-                blank_defined = True
-                break
+        choices = list(self.choices) if self.choices else []
+        named_groups = choices and isinstance(choices[0][1], (list, tuple))
+        if not named_groups:
+            for choice, __ in choices:
+                if choice in ('', None):
+                    blank_defined = True
+                    break
 
         first_choice = (blank_choice if include_blank and
                         not blank_defined else [])
         if self.choices:
-            return first_choice + list(self.choices)
+            return first_choice + choices
         rel_model = self.rel.to
         if hasattr(self.rel, 'get_related_field'):
             lst = [(getattr(x, self.rel.get_related_field().attname),
@@ -1267,9 +1272,13 @@ class DateTimeField(DateField):
             # For backwards compatibility, interpret naive datetimes in local
             # time. This won't work during DST change, but we can't do much
             # about it, so we let the exceptions percolate up the call stack.
-            warnings.warn("DateTimeField %s.%s received a naive datetime (%s)"
+            try:
+                name = '%s.%s' % (self.model.__name__, self.name)
+            except AttributeError:
+                name = '(unbound)'
+            warnings.warn("DateTimeField %s received a naive datetime (%s)"
                           " while time zone support is active." %
-                          (self.model.__name__, self.name, value),
+                          (name, value),
                           RuntimeWarning)
             default_timezone = timezone.get_default_timezone()
             value = timezone.make_aware(value, default_timezone)
@@ -1911,6 +1920,9 @@ class TimeField(Field):
             kwargs["auto_now"] = self.auto_now
         if self.auto_now_add is not False:
             kwargs["auto_now_add"] = self.auto_now_add
+        if self.auto_now or self.auto_now_add:
+            del kwargs['blank']
+            del kwargs['editable']
         return name, path, args, kwargs
 
     def get_internal_type(self):
@@ -2005,6 +2017,11 @@ class BinaryField(Field):
         super(BinaryField, self).__init__(*args, **kwargs)
         if self.max_length is not None:
             self.validators.append(validators.MaxLengthValidator(self.max_length))
+
+    def deconstruct(self):
+        name, path, args, kwargs = super(BinaryField, self).deconstruct()
+        del kwargs['editable']
+        return name, path, args, kwargs
 
     def get_internal_type(self):
         return "BinaryField"

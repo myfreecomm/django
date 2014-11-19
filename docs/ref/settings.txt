@@ -18,7 +18,8 @@ Core settings
 
 Here's a list of settings available in Django core and their default values.
 Settings provided by contrib apps are listed below, followed by a topical index
-of the core settings.
+of the core settings. For introductory material, see the :doc:`settings topic
+guide </topics/settings>`.
 
 .. setting:: ABSOLUTE_URL_OVERRIDES
 
@@ -28,7 +29,7 @@ ABSOLUTE_URL_OVERRIDES
 Default: ``{}`` (Empty dictionary)
 
 A dictionary mapping ``"app_label.model_name"`` strings to functions that take
-a model object and return its URL. This is a way of overriding
+a model object and return its URL. This is a way of inserting or overriding
 ``get_absolute_url()`` methods on a per-installation basis. Example::
 
     ABSOLUTE_URL_OVERRIDES = {
@@ -38,6 +39,11 @@ a model object and return its URL. This is a way of overriding
 
 Note that the model name used in this setting should be all lower-case, regardless
 of the case of the actual model class name.
+
+.. versionchanged:: 1.7.1
+
+    ``ABSOLUTE_URL_OVERRIDES`` now works on models that don't declare
+    ``get_absolute_url()``.
 
 .. setting:: ADMINS
 
@@ -88,8 +94,8 @@ middleware; if so this middleware must be listed first in
     wildcard::
 
         ALLOWED_HOSTS = [
-            '.example.com', # Allow domain and subdomains
-            '.example.com.', # Also allow FQDN and subdomains
+            '.example.com',  # Allow domain and subdomains
+            '.example.com.',  # Also allow FQDN and subdomains
         ]
 
     In Django 1.7, the trailing dot is stripped when performing host validation,
@@ -458,7 +464,7 @@ other database types. This example is for PostgreSQL::
 
     DATABASES = {
         'default': {
-            'ENGINE':'django.db.backends.postgresql_psycopg2',
+            'ENGINE': 'django.db.backends.postgresql_psycopg2',
             'NAME': 'mydatabase',
             'USER': 'mydatabaseuser',
             'PASSWORD': 'mypassword',
@@ -614,6 +620,8 @@ TEST
 
     All :setting:`TEST <DATABASE-TEST>` sub-entries used to be independent
     entries in the database settings dictionary, with a ``TEST_`` prefix.
+    For backwards compatibility with older versions of Django, you can define
+    both versions of the settings as long as they match.
     Further, ``TEST_CREATE``, ``TEST_USER_CREATE`` and ``TEST_PASSWD``
     were changed to ``CREATE_DB``, ``CREATE_USER`` and ``PASSWORD``
     respectively.
@@ -639,7 +647,7 @@ Supported for the PostgreSQL_ (``postgresql_psycopg2``) and MySQL_ (``mysql``)
 backends.
 
 .. _PostgreSQL: http://www.postgresql.org/docs/current/static/multibyte.html
-.. _MySQL: http://dev.mysql.com/doc/refman/5.0/en/charset-database.html
+.. _MySQL: http://dev.mysql.com/doc/refman/5.6/en/charset-database.html
 
 .. setting:: TEST_COLLATION
 
@@ -696,6 +704,19 @@ tests will use a memory resident database. For all other database engines the
 test database will use the name ``'test_' + DATABASE_NAME``.
 
 See :ref:`the-test-database`.
+
+.. setting:: TEST_SERIALIZE
+
+SERIALIZE
+^^^^^^^^^
+
+.. versionadded:: 1.7.1
+
+Boolean value to control whether or not the default test runnner serializes the
+database into an in-memory JSON string before running tests (used to restore
+the database state between tests if you don't have transactions). You can set
+this to ``False`` to speed up creation time if you don't have any test classes
+with :ref:`serialized_rollback=True <test-case-serialized-rollback>`.
 
 .. setting:: TEST_CREATE
 
@@ -1268,9 +1289,12 @@ FILE_UPLOAD_HANDLERS
 Default::
 
     ("django.core.files.uploadhandler.MemoryFileUploadHandler",
-     "django.core.files.uploadhandler.TemporaryFileUploadHandler",)
+     "django.core.files.uploadhandler.TemporaryFileUploadHandler")
 
-A tuple of handlers to use for uploading. See :doc:`/topics/files` for details.
+A tuple of handlers to use for uploading. Changing this setting allows complete
+customization -- even replacement -- of Django's upload process.
+
+See :doc:`/topics/files` for details.
 
 .. setting:: FILE_UPLOAD_MAX_MEMORY_SIZE
 
@@ -1308,14 +1332,17 @@ FILE_UPLOAD_PERMISSIONS
 
 Default: ``None``
 
-The numeric mode (i.e. ``0644``) to set newly uploaded files to. For
+The numeric mode (i.e. ``0o644``) to set newly uploaded files to. For
 more information about what these modes mean, see the documentation for
 :func:`os.chmod`.
 
 If this isn't given or is ``None``, you'll get operating-system
 dependent behavior. On most platforms, temporary files will have a mode
-of ``0600``, and files saved from memory will be saved using the
+of ``0o600``, and files saved from memory will be saved using the
 system's standard umask.
+
+For security reasons, these permissions aren't applied to the temporary files
+that are stored in :setting:`FILE_UPLOAD_TEMP_DIR`.
 
 This setting also determines the default permissions for collected static files
 when using the :djadmin:`collectstatic` management command. See
@@ -1330,7 +1357,6 @@ when using the :djadmin:`collectstatic` management command. See
     way that modes must be specified. If you try to use ``644``, you'll
     get totally incorrect behavior.
 
-
 .. setting:: FILE_UPLOAD_TEMP_DIR
 
 FILE_UPLOAD_TEMP_DIR
@@ -1338,9 +1364,11 @@ FILE_UPLOAD_TEMP_DIR
 
 Default: ``None``
 
-The directory to store data temporarily while uploading files. If ``None``,
-Django will use the standard temporary directory for the operating system. For
-example, this will default to '/tmp' on \*nix-style operating systems.
+The directory to store data (typically files larger than
+:setting:`FILE_UPLOAD_MAX_MEMORY_SIZE`) temporarily while uploading files.
+If ``None``, Django will use the standard temporary directory for the operating
+system. For example, this will default to ``/tmp`` on \*nix-style operating
+systems.
 
 See :doc:`/topics/files` for details.
 
@@ -1547,7 +1575,7 @@ standard domain cookies, existing user cookies that have the old domain
 will not be updated. This will result in site users being unable to switch
 the language as long as these cookies persist. The only safe and reliable
 option to perform the switch is to change the language cookie name
-permanently (via the :setting:`SESSION_COOKIE_NAME` setting) and to add
+permanently (via the :setting:`LANGUAGE_COOKIE_NAME` setting) and to add
 a middleware that copies the value from the old cookie to a new one and then
 deletes the old one.
 
@@ -1583,7 +1611,7 @@ setting to use a deeper path than it previously used, existing user cookies that
 have the old path will not be updated. This will result in site users being
 unable to switch the language as long as these cookies persist. The only safe
 and reliable option to perform the switch is to change the language cookie name
-permanently (via the :setting:`SESSION_COOKIE_NAME` setting), and to add
+permanently (via the :setting:`LANGUAGE_COOKIE_NAME` setting), and to add
 a middleware that copies the value from the old cookie to a new one and then
 deletes the one.
 
@@ -1635,7 +1663,7 @@ Example::
 
     LOCALE_PATHS = (
         '/home/www/project/common_files/locale',
-        '/var/local/translations/locale'
+        '/var/local/translations/locale',
     )
 
 Django will look within each of these paths for the ``<locale_code>/LC_MESSAGES``
@@ -1723,7 +1751,13 @@ Default: ``''`` (Empty string)
 
 URL that handles the media served from :setting:`MEDIA_ROOT`, used
 for :doc:`managing stored files </topics/files>`. It must end in a slash if set
-to a non-empty value.
+to a non-empty value. You will need to :ref:`configure these files to be served
+<serving-uploaded-files-in-development>` in both development and production.
+
+In order to use ``{{ MEDIA_URL }}`` in your templates, you must have
+``'django.core.context_processors.media'`` in your
+:setting:`TEMPLATE_CONTEXT_PROCESSORS`. It's there by default, but be sure
+to include it if you override that setting and want this behavior.
 
 Example: ``"http://media.example.com/"``
 
@@ -1746,12 +1780,16 @@ MIDDLEWARE_CLASSES
 Default::
 
     ('django.middleware.common.CommonMiddleware',
-     'django.contrib.sessions.middleware.SessionMiddleware',
-     'django.middleware.csrf.CsrfViewMiddleware',
-     'django.contrib.auth.middleware.AuthenticationMiddleware',
-     'django.contrib.messages.middleware.MessageMiddleware',)
+     'django.middleware.csrf.CsrfViewMiddleware')
 
 A tuple of middleware classes to use. See :doc:`/topics/http/middleware`.
+
+.. versionchanged:: 1.7
+
+    :class:`~django.contrib.sessions.middleware.SessionMiddleware`,
+    :class:`~django.contrib.auth.middleware.AuthenticationMiddleware`, and
+    :class:`~django.contrib.messages.middleware.MessageMiddleware` were removed
+    from this setting.
 
 .. setting:: MIGRATION_MODULES
 
@@ -1760,7 +1798,7 @@ MIGRATION_MODULES
 
 Default::
 
-    {} # empty dictionary
+    {}  # empty dictionary
 
 A dictionary specifying the package where migration modules can be found on a per-app basis. The default value
 of this setting is an empty dictionary, but the default package name for migration modules is ``migrations``.
@@ -1770,6 +1808,9 @@ Example::
     {'blog': 'blog.db_migrations'}
 
 In this case, migrations pertaining to the ``blog`` app will be contained in the ``blog.db_migrations`` package.
+
+:djadmin:`makemigrations` will automatically create the package if it doesn't
+already exist.
 
 .. setting:: MONTH_DAY_FORMAT
 
@@ -1786,6 +1827,9 @@ For example, when a Django admin change-list page is being filtered by a date
 drilldown, the header for a given day displays the day and month. Different
 locales have different formats. For example, U.S. English would say
 "January 1," whereas Spanish might say "1 Enero."
+
+Note that if :setting:`USE_L10N` is set to ``True``, then the corresponding
+locale-dictated format has higher precedence and will be applied.
 
 See :tfilter:`allowed date format strings <date>`. See also
 :setting:`DATE_FORMAT`, :setting:`DATETIME_FORMAT`,
@@ -1857,6 +1901,29 @@ Django will refuse to start if :setting:`SECRET_KEY` is not set.
     Running Django with a known :setting:`SECRET_KEY` defeats many of Django's
     security protections, and can lead to privilege escalation and remote code
     execution vulnerabilities.
+
+The secret key is used for:
+
+* All :doc:`sessions </topics/http/sessions>` if you are using
+  any other session backend than ``django.contrib.sessions.backends.cache``,
+  or if you use
+  :class:`~django.contrib.auth.middleware.SessionAuthenticationMiddleware`
+  and are using the default
+  :meth:`~django.contrib.auth.models.AbstractBaseUser.get_session_auth_hash()`.
+* All :doc:`messages </ref/contrib/messages>` if you are using
+  :class:`~django.contrib.messages.storage.cookie.CookieStorage` or
+  :class:`~django.contrib.messages.storage.fallback.FallbackStorage`.
+* :doc:`Form wizard </ref/contrib/formtools/form-wizard>` progress when using
+  cookie storage with
+  :class:`django.contrib.formtools.wizard.views.CookieWizardView`.
+* All :func:`~django.contrib.auth.views.password_reset` tokens.
+* All in progress :doc:`form previews </ref/contrib/formtools/form-preview>`.
+* Any usage of :doc:`cryptographic signing </topics/signing>`, unless a
+  different key is provided.
+
+If you rotate your secret key, all of the above will be invalidated.
+Secret keys are not used for passwords of users and key rotation will not
+affect them.
 
 .. setting:: SECURE_PROXY_SSL_HEADER
 
@@ -1948,7 +2015,7 @@ A dictionary of modules containing serializer definitions (provided as
 strings), keyed by a string identifier for that serialization type. For
 example, to define a YAML serializer, use::
 
-    SERIALIZATION_MODULES = { 'yaml' : 'path.to.yaml_serializer' }
+    SERIALIZATION_MODULES = {'yaml': 'path.to.yaml_serializer'}
 
 .. setting:: SERVER_EMAIL
 
@@ -2095,7 +2162,7 @@ TEMPLATE_STRING_IF_INVALID
 Default: ``''`` (Empty string)
 
 Output, as a string, that the template system should use for invalid (e.g.
-misspelled) variables. See :ref:`invalid-template-variables`..
+misspelled) variables. See :ref:`invalid-template-variables`.
 
 .. setting:: TEST_RUNNER
 
@@ -2111,6 +2178,26 @@ The name of the class to use for starting the test suite. See
 
     Previously the default ``TEST_RUNNER`` was
     ``django.test.simple.DjangoTestSuiteRunner``.
+
+.. setting:: TEST_NON_SERIALIZED_APPS
+
+TEST_NON_SERIALIZED_APPS
+------------------------
+
+.. versionadded:: 1.7
+
+Default: ``[]``
+
+In order to restore the database state between tests for
+``TransactionTestCase``\s and database backends without transactions, Django
+will :ref:`serialize the contents of all apps with migrations
+<test-case-serialized-rollback>` when it starts the test run so it can then
+reload from that copy before tests that need it.
+
+This slows down the startup time of the test runner; if you have apps that
+you know don't need this feature, you can add their full names in here (e.g.
+``'django.contrib.contenttypes'``) to exclude them from this serialization
+process.
 
 .. setting:: THOUSAND_SEPARATOR
 
@@ -2361,6 +2448,9 @@ drilldown, the header for a given month displays the month and the year.
 Different locales have different formats. For example, U.S. English would say
 "January 2006," whereas another locale might say "2006/January."
 
+Note that if :setting:`USE_L10N` is set to ``True``, then the corresponding
+locale-dictated format has higher precedence and will be applied.
+
 See :tfilter:`allowed date format strings <date>`. See also
 :setting:`DATE_FORMAT`, :setting:`DATETIME_FORMAT`, :setting:`TIME_FORMAT`
 and :setting:`MONTH_DAY_FORMAT`.
@@ -2401,6 +2491,14 @@ AUTH_USER_MODEL
 Default: 'auth.User'
 
 The model to use to represent a User. See :ref:`auth-custom-user`.
+
+.. warning::
+    You cannot change the AUTH_USER_MODEL setting during the lifetime of
+    a project (i.e. once you have made and migrated models that depend on it)
+    without serious effort. It is intended to be set at the project start,
+    and the model it refers to must be available in the first migration of
+    the app that it lives in.
+    See :ref:`auth-custom-user` for more details.
 
 .. setting:: LOGIN_REDIRECT_URL
 
@@ -2467,7 +2565,7 @@ Default::
      'django.contrib.auth.hashers.SHA1PasswordHasher',
      'django.contrib.auth.hashers.MD5PasswordHasher',
      'django.contrib.auth.hashers.UnsaltedMD5PasswordHasher',
-     'django.contrib.auth.hashers.CryptPasswordHasher',)
+     'django.contrib.auth.hashers.CryptPasswordHasher')
 
 
 .. _settings-comments:
@@ -2578,7 +2676,7 @@ Default::
     messages.INFO: 'info',
     messages.SUCCESS: 'success',
     messages.WARNING: 'warning',
-    messages.ERROR: 'error',}
+    messages.ERROR: 'error'}
 
 This sets the mapping of message level to message tag, which is typically
 rendered as a CSS class in HTML. If you specify a value, it will extend
@@ -2851,6 +2949,10 @@ If not ``None``, this will be used as the base path for
 
 It must end in a slash if set to a non-empty value.
 
+You may need to :ref:`configure these files to be served in development
+<serving-static-files-in-development>` and will definitely need to do so
+:doc:`in production </howto/static-files/deployment>`.
+
 .. setting:: STATICFILES_DIRS
 
 STATICFILES_DIRS
@@ -2998,6 +3100,8 @@ Error reporting
 * :setting:`SEND_BROKEN_LINK_EMAILS`
 * :setting:`SILENCED_SYSTEM_CHECKS`
 
+.. _file-upload-settings:
+
 File uploads
 ------------
 * :setting:`DEFAULT_FILE_STORAGE`
@@ -3094,6 +3198,7 @@ Templates
 Testing
 -------
 * Database: :setting:`TEST <DATABASE-TEST>`
+* :setting:`TEST_NON_SERIALIZED_APPS`
 * :setting:`TEST_RUNNER`
 
 URLs

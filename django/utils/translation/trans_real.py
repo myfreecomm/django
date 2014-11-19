@@ -10,6 +10,7 @@ from threading import local
 import warnings
 
 from django.apps import apps
+from django.core.exceptions import AppRegistryNotReady
 from django.dispatch import receiver
 from django.test.signals import setting_changed
 from django.utils.deprecation import RemovedInDjango19Warning
@@ -181,7 +182,14 @@ def translation(language):
                     res.merge(t)
             return res
 
-        for app_config in reversed(list(apps.get_app_configs())):
+        try:
+            app_configs = reversed(list(apps.get_app_configs()))
+        except AppRegistryNotReady:
+            raise AppRegistryNotReady(
+                "The translation infrastructure cannot be initialized before the "
+                "apps registry is ready. Check that you don't make non-lazy "
+                "gettext calls at import time.")
+        for app_config in app_configs:
             apppath = os.path.join(app_config.path, 'locale')
             if os.path.isdir(apppath):
                 res = _merge(apppath)
@@ -544,7 +552,7 @@ def templatize(src, origin=None):
     from django.template import (Lexer, TOKEN_TEXT, TOKEN_VAR, TOKEN_BLOCK,
             TOKEN_COMMENT, TRANSLATOR_COMMENT_MARK)
     src = force_text(src, settings.FILE_CHARSET)
-    out = StringIO()
+    out = StringIO('')
     message_context = None
     intrans = False
     inplural = False

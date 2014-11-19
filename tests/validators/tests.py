@@ -58,6 +58,7 @@ TEST_DATA = (
     (validate_email, 'email@[::ffff:127.0.0.256]', ValidationError),
     (validate_email, 'example@invalid-.com', ValidationError),
     (validate_email, 'example@-invalid.com', ValidationError),
+    (validate_email, 'example@invalid.com-', ValidationError),
     (validate_email, 'example@inv-.alid-.com', ValidationError),
     (validate_email, 'example@inv-.-alid.com', ValidationError),
     (validate_email, 'test@example.com\n\n<script src="x.js">', ValidationError),
@@ -174,6 +175,7 @@ TEST_DATA = (
     (URLValidator(), 'http://.com', ValidationError),
     (URLValidator(), 'http://invalid-.com', ValidationError),
     (URLValidator(), 'http://-invalid.com', ValidationError),
+    (URLValidator(), 'http://invalid.com-', ValidationError),
     (URLValidator(), 'http://inv-.alid-.com', ValidationError),
     (URLValidator(), 'http://inv-.-alid.com', ValidationError),
     (URLValidator(), 'file://localhost/path', ValidationError),
@@ -294,6 +296,33 @@ class TestValidatorEquality(TestCase):
         self.assertNotEqual(
             RegexValidator(r'^(?:[a-z0-9\.\-]*)://', "oh noes", "invalid"),
             RegexValidator(r'^(?:[a-z0-9\.\-]*)://'),
+        )
+
+        self.assertNotEqual(
+            RegexValidator('', flags=re.IGNORECASE),
+            RegexValidator(''),
+        )
+
+        self.assertNotEqual(
+            RegexValidator(''),
+            RegexValidator('', inverse_match=True),
+        )
+
+    def test_regex_equality_nocache(self):
+        pattern = r'^(?:[a-z0-9\.\-]*)://'
+        left = RegexValidator(pattern)
+        re.purge()
+        right = RegexValidator(pattern)
+
+        self.assertEqual(
+            left,
+            right,
+        )
+
+    def test_regex_equality_blank(self):
+        self.assertEqual(
+            RegexValidator(),
+            RegexValidator(),
         )
 
     def test_email_equality(self):

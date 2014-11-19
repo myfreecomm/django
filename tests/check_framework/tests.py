@@ -8,10 +8,13 @@ from django.apps import apps
 from django.conf import settings
 from django.core import checks
 from django.core.checks import Error, Warning
+from django.core.checks.model_checks import check_all_models
 from django.core.checks.registry import CheckRegistry
 from django.core.checks.compatibility.django_1_6_0 import check_1_6_compatibility
+from django.core.checks.compatibility.django_1_7_0 import check_1_7_compatibility
 from django.core.management.base import CommandError
 from django.core.management import call_command
+from django.db import models
 from django.db.models.fields import NOT_PROVIDED
 from django.test import TestCase
 from django.test.utils import override_settings, override_system_checks
@@ -148,6 +151,40 @@ class Django_1_6_0_CompatibilityChecks(TestCase):
                 boolean_field.default = old_default
 
 
+class Django_1_7_0_CompatibilityChecks(TestCase):
+
+    @override_settings(MIDDLEWARE_CLASSES=('django.contrib.sessions.middleware.SessionMiddleware',))
+    def test_middleware_classes_overridden(self):
+        errors = check_1_7_compatibility()
+        self.assertEqual(errors, [])
+
+    def test_middleware_classes_not_set_explicitly(self):
+        # If MIDDLEWARE_CLASSES was set explicitly, temporarily pretend it wasn't
+        middleware_classes_overridden = False
+        if 'MIDDLEWARE_CLASSES' in settings._wrapped._explicit_settings:
+            middleware_classes_overridden = True
+            settings._wrapped._explicit_settings.remove('MIDDLEWARE_CLASSES')
+        try:
+            errors = check_1_7_compatibility()
+            expected = [
+                checks.Warning(
+                    "MIDDLEWARE_CLASSES is not set.",
+                    hint=("Django 1.7 changed the global defaults for the MIDDLEWARE_CLASSES. "
+                          "django.contrib.sessions.middleware.SessionMiddleware, "
+                          "django.contrib.auth.middleware.AuthenticationMiddleware, and "
+                          "django.contrib.messages.middleware.MessageMiddleware were removed from the defaults. "
+                          "If your project needs these middleware then you should configure this setting."),
+                    obj=None,
+                    id='1_7.W001',
+                )
+            ]
+            self.assertEqual(errors, expected)
+        finally:
+            # Restore settings value
+            if middleware_classes_overridden:
+                settings._wrapped._explicit_settings.add('MIDDLEWARE_CLASSES')
+
+
 def simple_system_check(**kwargs):
     simple_system_check.kwargs = kwargs
     return []
@@ -265,3 +302,56 @@ class SilencingCheckTests(TestCase):
 
         self.assertEqual(out.getvalue(), 'System check identified no issues (1 silenced).\n')
         self.assertEqual(err.getvalue(), '')
+
+
+class CheckFrameworkReservedNamesTests(TestCase):
+
+    def setUp(self):
+        self.current_models = apps.all_models[__package__]
+        self.saved_models = set(self.current_models)
+
+    def tearDown(self):
+        for model in (set(self.current_models) - self.saved_models):
+            del self.current_models[model]
+        apps.clear_cache()
+
+    @override_settings(SILENCED_SYSTEM_CHECKS=['models.E020'])
+    def test_model_check_method_not_shadowed(self):
+        class ModelWithAttributeCalledCheck(models.Model):
+            check = 42
+
+        class ModelWithFieldCalledCheck(models.Model):
+            check = models.IntegerField()
+
+        class ModelWithRelatedManagerCalledCheck(models.Model):
+            pass
+
+        class ModelWithDescriptorCalledCheck(models.Model):
+            check = models.ForeignKey(ModelWithRelatedManagerCalledCheck)
+            article = models.ForeignKey(ModelWithRelatedManagerCalledCheck, related_name='check')
+
+        expected = [
+            Error(
+                "The 'ModelWithAttributeCalledCheck.check()' class method is "
+                "currently overridden by 42.",
+                hint=None,
+                obj=ModelWithAttributeCalledCheck,
+                id='models.E020'
+            ),
+            Error(
+                "The 'ModelWithRelatedManagerCalledCheck.check()' class method is "
+                "currently overridden by %r." % ModelWithRelatedManagerCalledCheck.check,
+                hint=None,
+                obj=ModelWithRelatedManagerCalledCheck,
+                id='models.E020'
+            ),
+            Error(
+                "The 'ModelWithDescriptorCalledCheck.check()' class method is "
+                "currently overridden by %r." % ModelWithDescriptorCalledCheck.check,
+                hint=None,
+                obj=ModelWithDescriptorCalledCheck,
+                id='models.E020'
+            ),
+        ]
+
+        self.assertEqual(check_all_models(), expected)

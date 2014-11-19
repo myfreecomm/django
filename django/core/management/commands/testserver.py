@@ -11,7 +11,7 @@ class Command(BaseCommand):
             type='string', default='',
             help='port number or ipaddr:port to run the server on'),
         make_option('--ipv6', '-6', action='store_true', dest='use_ipv6', default=False,
-            help='Tells Django to use a IPv6 address.'),
+            help='Tells Django to use an IPv6 address.'),
     )
     help = 'Runs a development server with data from the given fixture(s).'
     args = '[fixture ...]'
@@ -27,7 +27,7 @@ class Command(BaseCommand):
         addrport = options.get('addrport')
 
         # Create a test database.
-        db_name = connection.creation.create_test_db(verbosity=verbosity, autoclobber=not interactive)
+        db_name = connection.creation.create_test_db(verbosity=verbosity, autoclobber=not interactive, serialize=False)
 
         # Import the fixture data into the test database.
         call_command('loaddata', *fixture_labels, **{'verbosity': verbosity})

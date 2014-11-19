@@ -50,6 +50,7 @@ LANGUAGE_CODE = 'en-us'
 LANGUAGES = (
     ('af', gettext_noop('Afrikaans')),
     ('ar', gettext_noop('Arabic')),
+    ('ast', gettext_noop('Asturian')),
     ('az', gettext_noop('Azerbaijani')),
     ('bg', gettext_noop('Bulgarian')),
     ('be', gettext_noop('Belarusian')),
@@ -85,6 +86,7 @@ LANGUAGES = (
     ('hu', gettext_noop('Hungarian')),
     ('ia', gettext_noop('Interlingua')),
     ('id', gettext_noop('Indonesian')),
+    ('io', gettext_noop('Ido')),
     ('is', gettext_noop('Icelandic')),
     ('it', gettext_noop('Italian')),
     ('ja', gettext_noop('Japanese')),
@@ -99,6 +101,7 @@ LANGUAGES = (
     ('mk', gettext_noop('Macedonian')),
     ('ml', gettext_noop('Malayalam')),
     ('mn', gettext_noop('Mongolian')),
+    ('mr', gettext_noop('Marathi')),
     ('my', gettext_noop('Burmese')),
     ('nb', gettext_noop('Norwegian Bokmal')),
     ('ne', gettext_noop('Nepali')),
@@ -262,7 +265,7 @@ ABSOLUTE_URL_OVERRIDES = {}
 # Example: ('/home/html', '/var/www')
 ALLOWED_INCLUDE_ROOTS = ()
 
-# If this is a admin settings module, this should be a list of
+# If this is an admin settings module, this should be a list of
 # settings modules (in the format 'foo.bar.baz') for which this admin
 # is an admin.
 ADMIN_FOR = ()
@@ -461,12 +464,7 @@ SECURE_PROXY_SSL_HEADER = None
 # response phase the middleware will be applied in reverse order.
 MIDDLEWARE_CLASSES = (
     'django.middleware.common.CommonMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    # 'django.middleware.http.ConditionalGetMiddleware',
-    # 'django.middleware.gzip.GZipMiddleware',
 )
 
 ############
@@ -594,6 +592,10 @@ DEFAULT_EXCEPTION_REPORTER_FILTER = 'django.views.debug.SafeExceptionReporterFil
 
 # The name of the class to use to run the test suite
 TEST_RUNNER = 'django.test.runner.DiscoverRunner'
+
+# Apps that don't need to be serialized at test database creation time
+# (only apps with migrations are to start with)
+TEST_NON_SERIALIZED_APPS = []
 
 ############
 # FIXTURES #

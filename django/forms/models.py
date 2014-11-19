@@ -329,11 +329,9 @@ class BaseModelForm(BaseForm):
         # Apply ``limit_choices_to`` to each field.
         for field_name in self.fields:
             formfield = self.fields[field_name]
-            if hasattr(formfield, 'queryset'):
-                limit_choices_to = formfield.limit_choices_to
+            if hasattr(formfield, 'queryset') and hasattr(formfield, 'get_limit_choices_to'):
+                limit_choices_to = formfield.get_limit_choices_to()
                 if limit_choices_to is not None:
-                    if callable(limit_choices_to):
-                        limit_choices_to = limit_choices_to()
                     formfield.queryset = formfield.queryset.complex_filter(limit_choices_to)
 
     def _get_validation_exclusions(self):
@@ -810,7 +808,8 @@ def modelformset_factory(model, form=ModelForm, formfield_callback=None,
                          formset=BaseModelFormSet, extra=1, can_delete=False,
                          can_order=False, max_num=None, fields=None, exclude=None,
                          widgets=None, validate_max=False, localized_fields=None,
-                         labels=None, help_texts=None, error_messages=None):
+                         labels=None, help_texts=None, error_messages=None,
+                         min_num=None, validate_min=False):
     """
     Returns a FormSet class for the given Django model class.
     """
@@ -833,9 +832,9 @@ def modelformset_factory(model, form=ModelForm, formfield_callback=None,
                              formfield_callback=formfield_callback,
                              widgets=widgets, localized_fields=localized_fields,
                              labels=labels, help_texts=help_texts, error_messages=error_messages)
-    FormSet = formset_factory(form, formset, extra=extra, max_num=max_num,
+    FormSet = formset_factory(form, formset, extra=extra, min_num=min_num, max_num=max_num,
                               can_order=can_order, can_delete=can_delete,
-                              validate_max=validate_max)
+                              validate_min=validate_min, validate_max=validate_max)
     FormSet.model = model
     return FormSet
 
@@ -876,7 +875,11 @@ class BaseInlineFormSet(BaseModelFormSet):
             form.data[form.add_prefix(self.fk.name)] = None
 
         # Set the fk value here so that the form can do its validation.
-        setattr(form.instance, self.fk.get_attname(), self.instance.pk)
+        fk_value = self.instance.pk
+        if self.fk.rel.field_name != self.fk.rel.to._meta.pk.name:
+            fk_value = getattr(self.instance, self.fk.rel.field_name)
+            fk_value = getattr(fk_value, 'pk', fk_value)
+        setattr(form.instance, self.fk.get_attname(), fk_value)
         return form
 
     @classmethod
@@ -930,7 +933,7 @@ def _get_foreign_key(parent_model, model, fk_name=None, can_fail=False):
     """
     Finds and returns the ForeignKey from model to parent if there is one
     (returns None if can_fail is True and no such field exists). If fk_name is
-    provided, assume it is the name of the ForeignKey field. Unles can_fail is
+    provided, assume it is the name of the ForeignKey field. Unless can_fail is
     True, an exception is raised if there is no ForeignKey from model to
     parent_model.
     """
@@ -945,7 +948,7 @@ def _get_foreign_key(parent_model, model, fk_name=None, can_fail=False):
                     (fk.rel.to != parent_model and
                      fk.rel.to not in parent_model._meta.get_parent_list()):
                 raise ValueError(
-                    "fk_name '%s' is not a ForeignKey to '%s.%'."
+                    "fk_name '%s' is not a ForeignKey to '%s.%s'."
                     % (fk_name, parent_model._meta.app_label, parent_model._meta.object_name))
         elif len(fks_to_parent) == 0:
             raise ValueError(
@@ -979,7 +982,8 @@ def inlineformset_factory(parent_model, model, form=ModelForm,
                           fields=None, exclude=None, extra=3, can_order=False,
                           can_delete=True, max_num=None, formfield_callback=None,
                           widgets=None, validate_max=False, localized_fields=None,
-                          labels=None, help_texts=None, error_messages=None):
+                          labels=None, help_texts=None, error_messages=None,
+                          min_num=None, validate_min=False):
     """
     Returns an ``InlineFormSet`` for the given kwargs.
 
@@ -999,8 +1003,10 @@ def inlineformset_factory(parent_model, model, form=ModelForm,
         'can_order': can_order,
         'fields': fields,
         'exclude': exclude,
+        'min_num': min_num,
         'max_num': max_num,
         'widgets': widgets,
+        'validate_min': validate_min,
         'validate_max': validate_max,
         'localized_fields': localized_fields,
         'labels': labels,
@@ -1109,6 +1115,17 @@ class ModelChoiceField(ChoiceField):
         self.limit_choices_to = limit_choices_to   # limit the queryset later.
         self.choice_cache = None
         self.to_field_name = to_field_name
+
+    def get_limit_choices_to(self):
+        """
+        Returns ``limit_choices_to`` for this form field.
+
+        If it is a callable, it will be invoked and the result will be
+        returned.
+        """
+        if callable(self.limit_choices_to):
+            return self.limit_choices_to()
+        return self.limit_choices_to
 
     def __deepcopy__(self, memo):
         result = super(ChoiceField, self).__deepcopy__(memo)

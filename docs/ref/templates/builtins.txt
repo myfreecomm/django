@@ -52,11 +52,13 @@ comment
 ^^^^^^^
 
 Ignores everything between ``{% comment %}`` and ``{% endcomment %}``.
+An optional note may be inserted in the first tag. For example, this is
+useful when commenting out code for documenting why the code was disabled.
 
 Sample usage::
 
     <p>Rendered text with {{ pub_date|date:"c" }}</p>
-    {% comment %}
+    {% comment "Optional note" %}
         <p>Commented out text with {{ create_date|date:"c" }}</p>
     {% endcomment %}
 
@@ -736,6 +738,11 @@ available to the included template::
     This means that there is no shared state between included templates --
     each include is a completely independent rendering process.
 
+    Blocks are evaluated *before* they are included. This means that a template
+    that includes blocks from another will contain blocks that have *already
+    been evaluated and rendered* - not blocks that can be overridden by, for
+    example, an extending template.
+
 See also: :ttag:`{% ssi %}<ssi>`.
 
 .. templatetag:: load
@@ -774,11 +781,11 @@ Example::
     It is {% now "jS F Y H:i" %}
 
 Note that you can backslash-escape a format string if you want to use the
-"raw" value. In this example, "f" is backslash-escaped, because otherwise
-"f" is a format string that displays the time. The "o" doesn't need to be
-escaped, because it's not a format character::
+"raw" value. In this example, both "o" and "f" are backslash-escaped, because
+otherwise each is a format string that displays the year and the time,
+respectively::
 
-    It is the {% now "jS o\f F" %}
+    It is the {% now "jS \o\f F" %}
 
 This would display as "It is the 4th of September".
 
@@ -1132,13 +1139,15 @@ If ``this_value`` is 175, ``max_value`` is 200, and ``max_width`` is 100, the
 image in the above example will be 88 pixels wide
 (because 175/200 = .875; .875 * 100 = 87.5 which is rounded up to 88).
 
-.. versionchanged:: 1.7
-
 In some cases you might want to capture the result of ``widthratio`` in a
 variable. It can be useful, for instance, in a :ttag:`blocktrans` like this::
 
     {% widthratio this_value max_value max_width as width %}
     {% blocktrans %}The width is: {{ width }}{% endblocktrans %}
+
+.. versionchanged:: 1.7
+
+    The ability to use "as" with this tag like in the example above was added.
 
 .. templatetag:: with
 
@@ -1937,15 +1946,27 @@ Removes a space-separated list of [X]HTML tags from the output.
 
 For example::
 
-    {{ value|removetags:"b span"|safe }}
+    {{ value|removetags:"b span" }}
 
 If ``value`` is ``"<b>Joel</b> <button>is</button> a <span>slug</span>"`` the
-output will be ``"Joel <button>is</button> a slug"``.
+unescaped output will be ``"Joel <button>is</button> a slug"``.
 
 Note that this filter is case-sensitive.
 
 If ``value`` is ``"<B>Joel</B> <button>is</button> a <span>slug</span>"`` the
-output will be ``"<B>Joel</B> <button>is</button> a slug"``.
+unescaped output will be ``"<B>Joel</B> <button>is</button> a slug"``.
+
+.. admonition:: No safety guarantee
+
+    Note that ``removetags`` doesn't give any guarantee about its output being
+    HTML safe. In particular, it doesn't work recursively, so an input like
+    ``"<sc<script>ript>alert('XSS')</sc</script>ript>"`` won't be safe even if
+    you apply ``|removetags:"script"``. So if the input is user provided,
+    **NEVER** apply the ``safe`` filter to a ``removetags`` output. If you are
+    looking for something more robust, you can use the ``bleach`` Python
+    library, notably its `clean`_ method.
+
+.. _clean: http://bleach.readthedocs.org/en/latest/clean.html
 
 .. templatefilter:: rjust
 
@@ -2017,9 +2038,9 @@ If ``some_list`` is ``['a', 'b', 'c']``, the output will be ``['a', 'b']``.
 slugify
 ^^^^^^^
 
-Converts to lowercase, removes non-word characters (alphanumerics and
-underscores) and converts spaces to hyphens. Also strips leading and trailing
-whitespace.
+Converts to ASCII. Converts spaces to hyphens. Removes characters that aren't
+alphanumerics, underscores, or hyphens. Converts to lowercase. Also strips
+leading and trailing whitespace.
 
 For example::
 
@@ -2062,10 +2083,10 @@ output will be ``"Joel is a slug"``.
 .. admonition:: No safety guarantee
 
     Note that ``striptags`` doesn't give any guarantee about its output being
-    entirely HTML safe, particularly with non valid HTML input. So **NEVER**
-    apply the ``safe`` filter to a ``striptags`` output.
-    If you are looking for something more robust, you can use the ``bleach``
-    Python library, notably its `clean`_ method.
+    HTML safe, particularly with non valid HTML input. So **NEVER** apply the
+    ``safe`` filter to a ``striptags`` output. If you are looking for something
+    more robust, you can use the ``bleach`` Python library, notably its
+    `clean`_ method.
 
 .. _clean: http://bleach.readthedocs.org/en/latest/clean.html
 

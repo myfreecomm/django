@@ -23,8 +23,6 @@ class BaseHandler(object):
     response_fixes = [
         http.fix_location_header,
         http.conditional_content_removal,
-        http.fix_IE_for_attach,
-        http.fix_IE_for_vary,
     ]
 
     def __init__(self):
@@ -208,6 +206,8 @@ class BaseHandler(object):
         except:  # Any exception should be gathered and handled
             signals.got_request_exception.send(sender=self.__class__, request=request)
             response = self.handle_uncaught_exception(request, resolver, sys.exc_info())
+
+        response._closable_objects.append(request)
 
         return response
 

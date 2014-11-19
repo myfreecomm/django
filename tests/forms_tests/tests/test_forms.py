@@ -6,14 +6,15 @@ import datetime
 import json
 import warnings
 
+from django.core.exceptions import NON_FIELD_ERRORS
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.validators import RegexValidator
 from django.forms import (
     BooleanField, CharField, CheckboxSelectMultiple, ChoiceField, DateField,
-    EmailField, FileField, FloatField, Form, forms, HiddenInput, IntegerField,
-    MultipleChoiceField, MultipleHiddenInput, MultiValueField,
+    DateTimeField, EmailField, FileField, FloatField, Form, forms, HiddenInput,
+    IntegerField, MultipleChoiceField, MultipleHiddenInput, MultiValueField,
     NullBooleanField, PasswordInput, RadioSelect, Select, SplitDateTimeField,
-    Textarea, TextInput, ValidationError, widgets,
+    Textarea, TextInput, TimeField, ValidationError, widgets
 )
 from django.forms.utils import ErrorList
 from django.http import QueryDict
@@ -21,7 +22,9 @@ from django.template import Template, Context
 from django.test import TestCase
 from django.test.utils import str_prefix
 from django.utils.datastructures import MultiValueDict, MergeDict
-from django.utils.safestring import mark_safe
+from django.utils.encoding import force_text
+from django.utils.html import format_html
+from django.utils.safestring import mark_safe, SafeData
 from django.utils import six
 
 
@@ -57,11 +60,11 @@ class FormsTestCase(TestCase):
         self.assertHTMLEqual(str(p['first_name']), '<input type="text" name="first_name" value="John" id="id_first_name" />')
         self.assertHTMLEqual(str(p['last_name']), '<input type="text" name="last_name" value="Lennon" id="id_last_name" />')
         self.assertHTMLEqual(str(p['birthday']), '<input type="text" name="birthday" value="1940-10-9" id="id_birthday" />')
-        try:
+
+        nonexistenterror = "Key u?'nonexistentfield' not found in 'Person'"
+        with six.assertRaisesRegex(self, KeyError, nonexistenterror):
             p['nonexistentfield']
             self.fail('Attempts to access non-existent fields should fail.')
-        except KeyError:
-            pass
 
         form_output = []
 
@@ -739,6 +742,53 @@ class FormsTestCase(TestCase):
         with six.assertRaisesRegex(self, ValueError, "has no field named"):
             f.add_error('missing_field', 'Some error.')
 
+    def test_update_error_dict(self):
+        class CodeForm(Form):
+            code = CharField(max_length=10)
+
+            def clean(self):
+                try:
+                    raise ValidationError({'code': [ValidationError('Code error 1.')]})
+                except ValidationError as e:
+                    self._errors = e.update_error_dict(self._errors)
+
+                try:
+                    raise ValidationError({'code': [ValidationError('Code error 2.')]})
+                except ValidationError as e:
+                    self._errors = e.update_error_dict(self._errors)
+
+                try:
+                    raise ValidationError({'code': forms.ErrorList(['Code error 3.'])})
+                except ValidationError as e:
+                    self._errors = e.update_error_dict(self._errors)
+
+                try:
+                    raise ValidationError('Non-field error 1.')
+                except ValidationError as e:
+                    self._errors = e.update_error_dict(self._errors)
+
+                try:
+                    raise ValidationError([ValidationError('Non-field error 2.')])
+                except ValidationError as e:
+                    self._errors = e.update_error_dict(self._errors)
+
+                # Ensure that the newly added list of errors is an instance of ErrorList.
+                for field, error_list in self._errors.items():
+                    if not isinstance(error_list, self.error_class):
+                        self._errors[field] = self.error_class(error_list)
+
+        form = CodeForm({'code': 'hello'})
+        # Trigger validation.
+        self.assertFalse(form.is_valid())
+
+        # Check that update_error_dict didn't lose track of the ErrorDict type.
+        self.assertTrue(isinstance(form._errors, forms.ErrorDict))
+
+        self.assertEqual(dict(form.errors), {
+            'code': ['Code error 1.', 'Code error 2.', 'Code error 3.'],
+            NON_FIELD_ERRORS: ['Non-field error 1.', 'Non-field error 2.'],
+        })
+
     def test_dynamic_construction(self):
         # It's possible to construct a Form dynamically by adding to the self.fields
         # dictionary in __init__(). Don't forget to call Form.__init__() within the
@@ -1286,6 +1336,44 @@ class FormsTestCase(TestCase):
         self.assertEqual(unbound['username'].value(), 'djangonaut')
         self.assertEqual(bound['password'].value(), 'foo')
         self.assertEqual(unbound['password'].value(), None)
+
+    def test_boundfield_rendering(self):
+        """
+        Python 2 issue: Test that rendering a BoundField with bytestring content
+        doesn't lose it's safe string status (#22950).
+        """
+        class CustomWidget(TextInput):
+            def render(self, name, value, attrs=None):
+                return format_html(str('<input{0} />'), ' id=custom')
+
+        class SampleForm(Form):
+            name = CharField(widget=CustomWidget)
+
+        f = SampleForm(data={'name': 'bar'})
+        self.assertIsInstance(force_text(f['name']), SafeData)
+
+    def test_initial_datetime_values(self):
+        now = datetime.datetime.now()
+        # Nix microseconds (since they should be ignored). #22502
+        now_no_ms = now.replace(microsecond=0)
+        if now == now_no_ms:
+            now = now.replace(microsecond=1)
+
+        def delayed_now():
+            return now
+
+        def delayed_now_time():
+            return now.time()
+
+        class DateTimeForm(Form):
+            auto_timestamp = DateTimeField(initial=delayed_now)
+            auto_time_only = TimeField(initial=delayed_now_time)
+            supports_microseconds = DateTimeField(initial=delayed_now, widget=TextInput)
+
+        unbound = DateTimeForm()
+        self.assertEqual(unbound['auto_timestamp'].value(), now_no_ms)
+        self.assertEqual(unbound['auto_time_only'].value(), now_no_ms.time())
+        self.assertEqual(unbound['supports_microseconds'].value(), now)
 
     def test_help_text(self):
         # You can specify descriptive text for a field by using the 'help_text' argument)

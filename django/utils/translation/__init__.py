@@ -19,6 +19,7 @@ __all__ = [
     'ungettext', 'ungettext_lazy',
     'pgettext', 'pgettext_lazy',
     'npgettext', 'npgettext_lazy',
+    'LANGUAGE_SESSION_KEY',
 ]
 
 LANGUAGE_SESSION_KEY = '_language'
@@ -99,7 +100,7 @@ pgettext_lazy = lazy(pgettext, six.text_type)
 
 
 def lazy_number(func, resultclass, number=None, **kwargs):
-    if isinstance(number, int):
+    if isinstance(number, six.integer_types):
         kwargs['number'] = number
         proxy = lazy(func, resultclass)(**kwargs)
     else:

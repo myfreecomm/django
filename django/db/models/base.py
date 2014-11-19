@@ -2,7 +2,6 @@ from __future__ import unicode_literals
 
 import copy
 import sys
-from functools import update_wrapper
 import warnings
 
 from django.apps import apps
@@ -193,9 +192,6 @@ class ModelBase(type):
                     base = parent
             if base is None:
                 raise TypeError("Proxy model '%s' has no non-abstract model base class." % name)
-            if (new_class._meta.local_fields or
-                    new_class._meta.local_many_to_many):
-                raise FieldError("Proxy model '%s' contains model fields." % name)
             new_class._meta.setup_proxy(base)
             new_class._meta.concrete_model = base._meta.concrete_model
         else:
@@ -339,9 +335,11 @@ class ModelBase(type):
         if cls.__doc__ is None:
             cls.__doc__ = "%s(%s)" % (cls.__name__, ", ".join(f.attname for f in opts.fields))
 
-        if hasattr(cls, 'get_absolute_url'):
-            cls.get_absolute_url = update_wrapper(curry(get_absolute_url, opts, cls.get_absolute_url),
-                                                  cls.get_absolute_url)
+        get_absolute_url_override = settings.ABSOLUTE_URL_OVERRIDES.get(
+            '%s.%s' % (opts.app_label, opts.model_name)
+        )
+        if get_absolute_url_override:
+            setattr(cls, 'get_absolute_url', get_absolute_url_override)
 
         signals.class_prepared.send(sender=cls)
 
@@ -1044,6 +1042,7 @@ class Model(six.with_metaclass(ModelBase)):
     def check(cls, **kwargs):
         errors = []
         errors.extend(cls._check_swappable())
+        errors.extend(cls._check_model())
         errors.extend(cls._check_managers(**kwargs))
         if not cls._meta.swapped:
             errors.extend(cls._check_fields(**kwargs))
@@ -1087,6 +1086,21 @@ class Model(six.with_metaclass(ModelBase)):
                         hint=None,
                         obj=None,
                         id='models.E002',
+                    )
+                )
+        return errors
+
+    @classmethod
+    def _check_model(cls):
+        errors = []
+        if cls._meta.proxy:
+            if cls._meta.local_fields or cls._meta.local_many_to_many:
+                errors.append(
+                    checks.Error(
+                        "Proxy model '%s' contains model fields." % cls.__name__,
+                        hint=None,
+                        obj=None,
+                        id='models.E017',
                     )
                 )
         return errors
@@ -1341,7 +1355,7 @@ class Model(six.with_metaclass(ModelBase)):
 
     @classmethod
     def _check_ordering(cls):
-        """ Check "ordering" option -- is it a list of lists and do all fields
+        """ Check "ordering" option -- is it a list of strings and do all fields
         exist? """
 
         from django.db.models import FieldDoesNotExist
@@ -1385,6 +1399,14 @@ class Model(six.with_metaclass(ModelBase)):
             try:
                 cls._meta.get_field(field_name, many_to_many=False)
             except FieldDoesNotExist:
+                if field_name.endswith('_id'):
+                    try:
+                        field = cls._meta.get_field(field_name[:-3], many_to_many=False)
+                    except FieldDoesNotExist:
+                        pass
+                    else:
+                        if field.attname == field_name:
+                            continue
                 errors.append(
                     checks.Error(
                         "'ordering' refers to the non-existent field '%s'." % field_name,
@@ -1420,14 +1442,6 @@ def method_get_order(ordered_obj, self):
     pk_name = ordered_obj._meta.pk.name
     return [r[pk_name] for r in
             ordered_obj.objects.filter(**{order_name: rel_val}).values(pk_name)]
-
-
-##############################################
-# HELPER FUNCTIONS (CURRIED MODEL FUNCTIONS) #
-##############################################
-
-def get_absolute_url(opts, func, self, *args, **kwargs):
-    return settings.ABSOLUTE_URL_OVERRIDES.get('%s.%s' % (opts.app_label, opts.model_name), func)(self, *args, **kwargs)
 
 
 ########

@@ -25,7 +25,8 @@ from .models import (
     Foo, Bar, Whiz, BigD, BigS, BigIntegerModel, Post, NullBooleanModel,
     BooleanModel, PrimaryKeyCharModel, DataModel, Document, RenamedField,
     DateTimeModel, VerboseNameField, FksToBooleans, FkToChar, FloatModel,
-    SmallIntegerModel, IntegerModel, PositiveSmallIntegerModel, PositiveIntegerModel)
+    SmallIntegerModel, IntegerModel, PositiveSmallIntegerModel, PositiveIntegerModel,
+    WhizIter, WhizIterEmpty)
 
 
 class BasicFieldTests(test.TestCase):
@@ -375,6 +376,31 @@ class ChoicesTests(test.TestCase):
         self.assertEqual(Whiz(c=None).get_c_display(), None)    # Blank value
         self.assertEqual(Whiz(c='').get_c_display(), '')        # Empty value
 
+    def test_iterator_choices(self):
+        """
+        Check that get_choices works with Iterators (#23112).
+        """
+        self.assertEqual(WhizIter(c=1).c, 1)          # A nested value
+        self.assertEqual(WhizIter(c=9).c, 9)          # Invalid value
+        self.assertEqual(WhizIter(c=None).c, None)    # Blank value
+        self.assertEqual(WhizIter(c='').c, '')        # Empty value
+
+    def test_empty_iterator_choices(self):
+        """
+        Check that get_choices works with empty iterators (#23112).
+        """
+        self.assertEqual(WhizIterEmpty(c="a").c, "a")      # A nested value
+        self.assertEqual(WhizIterEmpty(c="b").c, "b")      # Invalid value
+        self.assertEqual(WhizIterEmpty(c=None).c, None)    # Blank value
+        self.assertEqual(WhizIterEmpty(c='').c, '')        # Empty value
+
+    def test_charfield_get_choices_with_blank_iterator(self):
+        """
+        Check that get_choices works with an empty Iterator
+        """
+        f = models.CharField(choices=(x for x in []))
+        self.assertEqual(f.get_choices(include_blank=True), [('', '---------')])
+
 
 class SlugFieldTests(test.TestCase):
     def test_slugfield_max_length(self):
@@ -415,6 +441,13 @@ class ValidationTest(test.TestCase):
     def test_charfield_get_choices_with_blank_defined(self):
         f = models.CharField(choices=[('', '<><>'), ('a', 'A')])
         self.assertEqual(f.get_choices(True), [('', '<><>'), ('a', 'A')])
+
+    def test_charfield_get_choices_doesnt_evaluate_lazy_strings(self):
+        # Regression test for #23098
+        # Will raise ZeroDivisionError if lazy is evaluated
+        lazy_func = lazy(lambda x: 0 / 0, int)
+        f = models.CharField(choices=[(lazy_func('group'), (('a', 'A'), ('b', 'B')))])
+        self.assertEqual(f.get_choices(True)[0], ('', '---------'))
 
     def test_choices_validation_supports_named_groups(self):
         f = models.IntegerField(
@@ -605,6 +638,7 @@ class FileFieldTests(unittest.TestCase):
 class BinaryFieldTests(test.TestCase):
     binary_data = b'\x00\x46\xFE'
 
+    @test.skipUnlessDBFeature('supports_binary_field')
     def test_set_and_retrieve(self):
         data_set = (self.binary_data, six.memoryview(self.binary_data))
         for bdata in data_set:
@@ -618,10 +652,6 @@ class BinaryFieldTests(test.TestCase):
             self.assertEqual(bytes(dm.data), bytes(bdata))
             # Test default value
             self.assertEqual(bytes(dm.short_data), b'\x08')
-
-    if connection.vendor == 'mysql' and six.PY3:
-        # Existing MySQL DB-API drivers fail on binary data.
-        test_set_and_retrieve = unittest.expectedFailure(test_set_and_retrieve)
 
     def test_max_length(self):
         dm = DataModel(short_data=self.binary_data * 4)

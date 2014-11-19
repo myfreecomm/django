@@ -39,7 +39,7 @@ class BaseDatabaseWrapper(object):
         self.queries = []
         self.settings_dict = settings_dict
         self.alias = alias
-        self.use_debug_cursor = None
+        self.use_debug_cursor = False
 
         # Savepoint management related attributes
         self.savepoint_state = 0
@@ -81,6 +81,10 @@ class BaseDatabaseWrapper(object):
 
     def __hash__(self):
         return hash(self.alias)
+
+    @property
+    def queries_logged(self):
+        return self.use_debug_cursor or settings.DEBUG
 
     ##### Backend-specific methods for creating connections and cursors #####
 
@@ -157,8 +161,7 @@ class BaseDatabaseWrapper(object):
         Creates a cursor, opening a connection if necessary.
         """
         self.validate_thread_sharing()
-        if (self.use_debug_cursor or
-                (self.use_debug_cursor is None and settings.DEBUG)):
+        if self.queries_logged:
             cursor = self.make_debug_cursor(self._cursor())
         else:
             cursor = utils.CursorWrapper(self._cursor(), self)
@@ -567,9 +570,14 @@ class BaseDatabaseFeatures(object):
     # Does the backend distinguish between '' and None?
     interprets_empty_strings_as_nulls = False
 
+    # Does the backend allow inserting duplicate NULL rows in a nullable
+    # unique field? All core backends implement this correctly, but other
+    # databases such as SQL Server do not.
+    supports_nullable_unique_constraints = True
+
     # Does the backend allow inserting duplicate rows when a unique_together
-    # constraint exists, but one of the unique_together columns is NULL?
-    ignores_nulls_in_unique_constraints = True
+    # constraint exists and some fields are nullable but not all of them?
+    supports_partially_nullable_unique_constraints = True
 
     can_use_chunked_reads = True
     can_return_id_from_insert = False
@@ -609,6 +617,8 @@ class BaseDatabaseFeatures(object):
     has_real_datatype = False
     supports_subqueries_in_group_by = True
     supports_bitwise_or = True
+
+    supports_binary_field = True
 
     # Do time/datetime fields have microsecond precision?
     supports_microsecond_precision = True
@@ -652,6 +662,16 @@ class BaseDatabaseFeatures(object):
     # Does the backend reset sequences between tests?
     supports_sequence_reset = True
 
+    # Can the backend determine reliably the length of a CharField?
+    can_introspect_max_length = True
+
+    # Can the backend determine reliably if a field is nullable?
+    # Note that this is separate from interprets_empty_strings_as_nulls,
+    # although the latter feature, when true, interferes with correct
+    # setting (and introspection) of CharFields' nullability.
+    # This is True for all core backends.
+    can_introspect_null = True
+
     # Confirm support for introspected foreign keys
     # Every database can do this reliably, except MySQL,
     # which can't do it for MyISAM tables
@@ -659,6 +679,30 @@ class BaseDatabaseFeatures(object):
 
     # Can the backend introspect an AutoField, instead of an IntegerField?
     can_introspect_autofield = False
+
+    # Can the backend introspect a BigIntegerField, instead of an IntegerField?
+    can_introspect_big_integer_field = True
+
+    # Can the backend introspect an BinaryField, instead of an TextField?
+    can_introspect_binary_field = True
+
+    # Can the backend introspect an BooleanField, instead of an IntegerField?
+    can_introspect_boolean_field = True
+
+    # Can the backend introspect an DecimalField, instead of an FloatField?
+    can_introspect_decimal_field = True
+
+    # Can the backend introspect an IPAddressField, instead of an CharField?
+    can_introspect_ip_address_field = False
+
+    # Can the backend introspect a PositiveIntegerField, instead of an IntegerField?
+    can_introspect_positive_integer_field = False
+
+    # Can the backend introspect a SmallIntegerField, instead of an IntegerField?
+    can_introspect_small_integer_field = False
+
+    # Can the backend introspect a TimeField, instead of a DateTimeField?
+    can_introspect_time_field = True
 
     # Support for the DISTINCT ON clause
     can_distinct_on_fields = False
@@ -680,7 +724,7 @@ class BaseDatabaseFeatures(object):
     supports_foreign_keys = True
 
     # Does it support CHECK constraints?
-    supports_check_constraints = True
+    supports_column_check_constraints = True
 
     # Does the backend support 'pyformat' style ("... %(name)s ...", {'name': value})
     # parameter passing? Note this can be provided by the backend even if not
@@ -702,6 +746,17 @@ class BaseDatabaseFeatures(object):
     # Does the backend require the sqlparse library for splitting multi-line
     # statements before executing them?
     requires_sqlparse_for_splitting = True
+
+    # Suffix for backends that don't support "SELECT xxx;" queries.
+    bare_select_suffix = ''
+
+    # If NULL is implied on columns without needing to be explicitly specified
+    implied_column_null = False
+
+    uppercases_column_names = False
+
+    # Does the backend support "select for update" queries with limit (and offset)?
+    supports_select_for_update_with_limit = True
 
     def __init__(self, connection):
         self.connection = connection

@@ -106,16 +106,22 @@ class DatabaseFeatures(BaseDatabaseFeatures):
     has_zoneinfo_database = pytz is not None
     supports_bitwise_or = False
     can_defer_constraint_checks = True
-    ignores_nulls_in_unique_constraints = False
+    supports_partially_nullable_unique_constraints = False
     has_bulk_insert = True
     supports_tablespaces = True
     supports_sequence_reset = False
+    can_introspect_max_length = False
+    can_introspect_time_field = False
     atomic_transactions = False
     supports_combined_alters = False
     nulls_order_largest = True
     requires_literal_defaults = True
     connection_persists_old_columns = True
     closed_cursor_error_class = InterfaceError
+    bare_select_suffix = " FROM DUAL"
+    uppercases_column_names = True
+    # select for update with limit can be achieved on Oracle, but not with the current backend.
+    supports_select_for_update_with_limit = False
 
 
 class DatabaseOperations(BaseDatabaseOperations):
@@ -254,7 +260,10 @@ WHEN (new.%(col_name)s IS NULL)
         # string instead of null, but only if the field accepts the
         # empty string.
         if value is None and field and field.empty_strings_allowed:
-            value = ''
+            if field.get_internal_type() == 'BinaryField':
+                value = b''
+            else:
+                value = ''
         # Convert 1 or 0 to True or False
         elif value in (1, 0) and field and field.get_internal_type() in ('BooleanField', 'NullBooleanField'):
             value = bool(value)
@@ -682,9 +691,14 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         "Returns a new instance of this backend's SchemaEditor"
         return DatabaseSchemaEditor(self, *args, **kwargs)
 
-    # Oracle doesn't support savepoint commits.  Ignore them.
+    # Oracle doesn't support releasing savepoints. But we fake them when query
+    # logging is enabled to keep query counts consistent with other backends.
     def _savepoint_commit(self, sid):
-        pass
+        if self.queries_logged:
+            self.queries.append({
+                'sql': '-- RELEASE SAVEPOINT %s (faked)' % self.ops.quote_name(sid),
+                'time': '0.000',
+            })
 
     def _set_autocommit(self, autocommit):
         with self.wrap_database_errors:
@@ -711,13 +725,30 @@ class DatabaseWrapper(BaseDatabaseWrapper):
             return True
 
     @cached_property
-    def oracle_version(self):
+    def oracle_full_version(self):
         with self.temporary_connection():
-            version = self.connection.version
+            return self.connection.version
+
+    @cached_property
+    def oracle_version(self):
         try:
-            return int(version.split('.')[0])
+            return int(self.oracle_full_version.split('.')[0])
         except ValueError:
             return None
+
+    @cached_property
+    def version_has_default_introspection_bug(self):
+        """
+        Some versions of Oracle -- we've seen this on 11.2.0.1 and suspect
+        it goes back -- have a weird bug where, when an integer column is
+        defined with a default, its precision is later reported on introspection
+        as 0, regardless of the real precision. For Django introspection, this
+        means that such columns are reported as IntegerField even if they are
+        really BigIntegerField or BooleanField.
+
+        The bug is solved in Oracle 11.2.0.2 and up.
+        """
+        return self.oracle_full_version < '11.2.0.2'
 
 
 class OracleParam(object):
@@ -743,6 +774,7 @@ class OracleParam(object):
                 param = timezone.make_aware(param, default_timezone)
             param = Oracle_datetime.from_datetime(param.astimezone(timezone.utc))
 
+        string_size = 0
         # Oracle doesn't recognize True and False correctly in Python 3.
         # The conversion done below works both in 2 and 3.
         if param is True:
@@ -751,15 +783,20 @@ class OracleParam(object):
             param = "0"
         if hasattr(param, 'bind_parameter'):
             self.force_bytes = param.bind_parameter(cursor)
-        elif isinstance(param, six.memoryview):
+        elif isinstance(param, Database.Binary):
             self.force_bytes = param
         else:
+            # To transmit to the database, we need Unicode if supported
+            # To get size right, we must consider bytes.
             self.force_bytes = convert_unicode(param, cursor.charset,
                                              strings_only)
+            if isinstance(self.force_bytes, six.string_types):
+                # We could optimize by only converting up to 4000 bytes here
+                string_size = len(force_bytes(param, cursor.charset, strings_only))
         if hasattr(param, 'input_size'):
             # If parameter has `input_size` attribute, use that.
             self.input_size = param.input_size
-        elif isinstance(param, six.string_types) and len(param) > 4000:
+        elif string_size > 4000:
             # Mark any string param greater than 4000 characters as a CLOB.
             self.input_size = Database.CLOB
         else:

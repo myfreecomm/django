@@ -1444,6 +1444,33 @@ class MaxNumCheckTests(CheckTestCase):
         self.assertIsValid(ValidationTestModelAdmin, ValidationTestModel)
 
 
+class MinNumCheckTests(CheckTestCase):
+
+    def test_not_integer(self):
+        class ValidationTestInline(TabularInline):
+            model = ValidationTestInlineModel
+            min_num = "hello"
+
+        class ValidationTestModelAdmin(ModelAdmin):
+            inlines = [ValidationTestInline]
+
+        self.assertIsInvalid(
+            ValidationTestModelAdmin, ValidationTestModel,
+            "The value of 'min_num' must be an integer.",
+            'admin.E205',
+            invalid_obj=ValidationTestInline)
+
+    def test_valid_case(self):
+        class ValidationTestInline(TabularInline):
+            model = ValidationTestInlineModel
+            min_num = 2
+
+        class ValidationTestModelAdmin(ModelAdmin):
+            inlines = [ValidationTestInline]
+
+        self.assertIsValid(ValidationTestModelAdmin, ValidationTestModel)
+
+
 class FormsetCheckTests(CheckTestCase):
 
     def test_invalid_type(self):
@@ -1460,7 +1487,7 @@ class FormsetCheckTests(CheckTestCase):
         self.assertIsInvalid(
             ValidationTestModelAdmin, ValidationTestModel,
             "The value of 'formset' must inherit from 'BaseModelFormSet'.",
-            'admin.E205',
+            'admin.E206',
             invalid_obj=ValidationTestInline)
 
     def test_valid_case(self):
@@ -1491,3 +1518,27 @@ class CustomModelAdminTests(CheckTestCase):
                 validator_class = CustomValidator
 
             self.assertIsInvalid(CustomModelAdmin, ValidationTestModel, 'error!')
+
+
+class ListDisplayEditableTests(CheckTestCase):
+    def test_list_display_links_is_none(self):
+        """
+        list_display and list_editable can contain the same values
+        when list_display_links is None
+        """
+        class ProductAdmin(ModelAdmin):
+            list_display = ['name', 'slug', 'pub_date']
+            list_editable = list_display
+            list_display_links = None
+        self.assertIsValid(ProductAdmin, ValidationTestModel)
+
+    def test_list_display_same_as_list_editable(self):
+        """
+        The first item in list_display can be the same as the first
+        in list_editable
+        """
+        class ProductAdmin(ModelAdmin):
+            list_display = ['name', 'slug', 'pub_date']
+            list_editable = ['name', 'slug']
+            list_display_links = ['pub_date']
+        self.assertIsValid(ProductAdmin, ValidationTestModel)

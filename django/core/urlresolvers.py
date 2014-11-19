@@ -329,6 +329,11 @@ class RegexURLResolver(LocaleRegexProvider):
             self._populate()
         return self._app_dict[language_code]
 
+    def _is_callback(self, name):
+        if not self._populated:
+            self._populate()
+        return name in self._callback_strs
+
     def resolve(self, path):
         path = force_text(path)  # path may be a reverse_lazy object
         tried = []
@@ -410,7 +415,7 @@ class RegexURLResolver(LocaleRegexProvider):
             self._populate()
 
         try:
-            if lookup_view in self._callback_strs:
+            if self._is_callback(lookup_view):
                 lookup_view = get_callable(lookup_view, True)
         except (ImportError, AttributeError) as e:
             raise NoReverseMatch("Error importing '%s': %s." % (lookup_view, e))
@@ -442,7 +447,11 @@ class RegexURLResolver(LocaleRegexProvider):
                 candidate_pat = prefix_norm.replace('%', '%%') + result
                 if re.search('^%s%s' % (prefix_norm, pattern), candidate_pat % candidate_subs, re.UNICODE):
                     candidate_subs = dict((k, urlquote(v)) for (k, v) in candidate_subs.items())
-                    return candidate_pat % candidate_subs
+                    url = candidate_pat % candidate_subs
+                    # Don't allow construction of scheme relative urls.
+                    if url.startswith('//'):
+                        url = '/%%2F%s' % url[2:]
+                    return url
         # lookup_view can be URL label, or dotted path, or callable, Any of
         # these can be passed in at the top, but callables are not friendly in
         # error messages.

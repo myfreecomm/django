@@ -37,7 +37,7 @@ Example
 
 The following is a simple unit test using the request factory::
 
-    from django.contrib.auth.models import User
+    from django.contrib.auth.models import AnonymousUser, User
     from django.test import TestCase, RequestFactory
 
     class SimpleTest(TestCase):
@@ -54,6 +54,10 @@ The following is a simple unit test using the request factory::
             # Recall that middleware are not supported. You can simulate a
             # logged-in user by setting request.user manually.
             request.user = self.user
+
+            # Or you can simulate an anonymous user by setting request.user to
+            # an AnonymousUser instance.
+            request.user = AnonymousUser()
 
             # Test my_view() as if it were deployed at /customer/details
             response = my_view(request)
@@ -253,8 +257,8 @@ tests via Django's test runner.
 
 .. versionchanged:: 1.7
 
-If you are not using a management command to invoke the tests, you will also
-need to first setup Django itself using :func:`django.setup()`.
+    If you are not using a management command to invoke the tests, you will
+    also need to first setup Django itself using :func:`django.setup()`.
 
 .. _other-testing-frameworks:
 
@@ -488,7 +492,7 @@ django.db.connection.creation
 The creation module of the database backend also provides some utilities that
 can be useful during testing.
 
-.. function:: create_test_db([verbosity=1, autoclobber=False])
+.. function:: create_test_db([verbosity=1, autoclobber=False, serialize=True])
 
     Creates a new test database and runs ``migrate`` against it.
 
@@ -504,11 +508,27 @@ can be useful during testing.
     * If autoclobber is ``True``, the database will be destroyed
       without consulting the user.
 
+    ``serialize`` determines if Django serializes the database into an
+    in-memory JSON string before running tests (used to restore the database
+    state between tests if you don't have transactions). You can set this to
+    ``False`` to speed up creation time if you don't have any test classes
+    with :ref:`serialized_rollback=True <test-case-serialized-rollback>`.
+
+    .. versionadded:: 1.7.1
+
+        If you are using the default test runner, you can control this with the
+        the :setting:`SERIALIZE <TEST_SERIALIZE>` entry in the
+        :setting:`TEST <DATABASE-TEST>` dictionary
+
     Returns the name of the test database that it created.
 
     ``create_test_db()`` has the side effect of modifying the value of
     :setting:`NAME` in :setting:`DATABASES` to match the name of the test
     database.
+
+    .. versionchanged:: 1.7
+
+        The ``serialize`` argument was added.
 
 .. function:: destroy_test_db(old_database_name, [verbosity=1])
 

@@ -58,11 +58,12 @@ class AdminScriptTestCase(unittest.TestCase):
                 'ROOT_URLCONF',
                 'SECRET_KEY',
                 'TEST_RUNNER',  # We need to include TEST_RUNNER, otherwise we get a compatibility warning.
+                'MIDDLEWARE_CLASSES',  # We need to include MIDDLEWARE_CLASSES, otherwise we get a compatibility warning.
             ]
             for s in exports:
                 if hasattr(settings, s):
                     o = getattr(settings, s)
-                    if not isinstance(o, dict):
+                    if not isinstance(o, (dict, tuple, list)):
                         o = "'%s'" % o
                     settings_file.write("%s = %s\n" % (s, o))
 
@@ -1384,6 +1385,7 @@ class CommandTypes(AdminScriptTestCase):
         out = StringIO()
 
         call_command('color_command', no_color=True, stdout=out)
+        self.assertEqual(os.environ.get('DJANGO_COLORS', ''), 'nocolor')
         self.assertEqual(out.getvalue(), 'BEGIN\n')
 
     def test_base_command(self):

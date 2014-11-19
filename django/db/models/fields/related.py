@@ -1,3 +1,5 @@
+from __future__ import unicode_literals
+
 from operator import attrgetter
 
 from django.apps import apps
@@ -12,7 +14,7 @@ from django.db.models.lookups import IsNull
 from django.db.models.related import RelatedObject, PathInfo
 from django.db.models.query import QuerySet
 from django.db.models.sql.datastructures import Col
-from django.utils.encoding import smart_text
+from django.utils.encoding import force_text, smart_text
 from django.utils import six
 from django.utils.deprecation import RenameMethodsBase, RemovedInDjango18Warning
 from django.utils.translation import ugettext_lazy as _
@@ -713,12 +715,16 @@ def create_foreign_related_manager(superclass, rel_field, rel_model):
         create.alters_data = True
 
         def get_or_create(self, **kwargs):
-            # Update kwargs with the related object that this
-            # ForeignRelatedObjectsDescriptor knows about.
             kwargs[rel_field.name] = self.instance
             db = router.db_for_write(self.model, instance=self.instance)
             return super(RelatedManager, self.db_manager(db)).get_or_create(**kwargs)
         get_or_create.alters_data = True
+
+        def update_or_create(self, **kwargs):
+            kwargs[rel_field.name] = self.instance
+            db = router.db_for_write(self.model, instance=self.instance)
+            return super(RelatedManager, self.db_manager(db)).update_or_create(**kwargs)
+        update_or_create.alters_data = True
 
         # remove() and clear() are only provided if the ForeignKey can have a value of null.
         if rel_field.null:
@@ -961,14 +967,23 @@ def create_many_related_manager(superclass, rel):
 
         def get_or_create(self, **kwargs):
             db = router.db_for_write(self.instance.__class__, instance=self.instance)
-            obj, created = \
-                super(ManyRelatedManager, self.db_manager(db)).get_or_create(**kwargs)
+            obj, created = super(ManyRelatedManager, self.db_manager(db)).get_or_create(**kwargs)
             # We only need to add() if created because if we got an object back
             # from get() then the relationship already exists.
             if created:
                 self.add(obj)
             return obj, created
         get_or_create.alters_data = True
+
+        def update_or_create(self, **kwargs):
+            db = router.db_for_write(self.instance.__class__, instance=self.instance)
+            obj, created = super(ManyRelatedManager, self.db_manager(db)).update_or_create(**kwargs)
+            # We only need to add() if created because if we got an object back
+            # from get() then the relationship already exists.
+            if created:
+                self.add(obj)
+            return obj, created
+        update_or_create.alters_data = True
 
         def _add_items(self, source_field_name, target_field_name, *objs):
             # source_field_name: the PK fieldname in join table for the source object
@@ -1360,6 +1375,14 @@ class ForeignObject(RelatedField):
         name, path, args, kwargs = super(ForeignObject, self).deconstruct()
         kwargs['from_fields'] = self.from_fields
         kwargs['to_fields'] = self.to_fields
+        if self.rel.related_name is not None:
+            kwargs['related_name'] = force_text(self.rel.related_name)
+        if self.rel.related_query_name is not None:
+            kwargs['related_query_name'] = self.rel.related_query_name
+        if self.rel.on_delete != CASCADE:
+            kwargs['on_delete'] = self.rel.on_delete
+        if self.rel.parent_link:
+            kwargs['parent_link'] = self.rel.parent_link
         # Work out string form of "to"
         if isinstance(self.rel.to, six.string_types):
             kwargs['to'] = self.rel.to
@@ -1424,14 +1447,16 @@ class ForeignObject(RelatedField):
     @staticmethod
     def get_instance_value_for_fields(instance, fields):
         ret = []
+        opts = instance._meta
         for field in fields:
             # Gotcha: in some cases (like fixture loading) a model can have
             # different values in parent_ptr_id and parent's id. So, use
             # instance.pk (that is, parent_ptr_id) when asked for instance.id.
-            opts = instance._meta
             if field.primary_key:
                 possible_parent_link = opts.get_ancestor_link(field.model)
-                if not possible_parent_link or possible_parent_link.primary_key:
+                if (not possible_parent_link or
+                        possible_parent_link.primary_key or
+                        possible_parent_link.model._meta.abstract):
                     ret.append(instance.pk)
                     continue
             ret.append(getattr(instance, field.attname))
@@ -1645,10 +1670,9 @@ class ForeignKey(ForeignObject):
             kwargs['db_index'] = False
         if self.db_constraint is not True:
             kwargs['db_constraint'] = self.db_constraint
-        if self.rel.on_delete is not CASCADE:
-            kwargs['on_delete'] = self.rel.on_delete
         # Rel needs more work.
-        if self.rel.field_name:
+        to_meta = getattr(self.rel.to, "_meta", None)
+        if self.rel.field_name and (not to_meta or (to_meta.pk and self.rel.field_name != to_meta.pk.name)):
             kwargs['to_field'] = self.rel.field_name
         return name, path, args, kwargs
 
@@ -1817,7 +1841,7 @@ def create_many_to_many_intermediary_model(field, klass):
     else:
         from_ = klass._meta.model_name
         to = to.lower()
-    meta = type('Meta', (object,), {
+    meta = type(str('Meta'), (object,), {
         'db_table': field._get_m2m_db_table(klass._meta),
         'managed': managed,
         'auto_created': klass,
@@ -2083,10 +2107,14 @@ class ManyToManyField(RelatedField):
     def deconstruct(self):
         name, path, args, kwargs = super(ManyToManyField, self).deconstruct()
         # Handle the simpler arguments
+        if self.db_table is not None:
+            kwargs['db_table'] = self.db_table
         if self.rel.db_constraint is not True:
             kwargs['db_constraint'] = self.rel.db_constraint
-        if "help_text" in kwargs:
-            del kwargs['help_text']
+        if self.rel.related_name is not None:
+            kwargs['related_name'] = force_text(self.rel.related_name)
+        if self.rel.related_query_name is not None:
+            kwargs['related_query_name'] = self.rel.related_query_name
         # Rel needs more work.
         if isinstance(self.rel.to, six.string_types):
             kwargs['to'] = self.rel.to
@@ -2115,7 +2143,7 @@ class ManyToManyField(RelatedField):
 
     def _get_path_info(self, direct=False):
         """
-        Called by both direct an indirect m2m traversal.
+        Called by both direct and indirect m2m traversal.
         """
         pathinfos = []
         int_model = self.rel.through

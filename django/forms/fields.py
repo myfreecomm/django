@@ -79,7 +79,7 @@ class Field(object):
         #                   messages that the field will raise.
         # show_hidden_initial -- Boolean that specifies if it is needed to render a
         #                        hidden widget with initial value after widget.
-        # validators -- List of addtional validators to use
+        # validators -- List of additional validators to use
         # localize -- Boolean that specifies if the field should be localized.
         self.required, self.label, self.initial = required, label, initial
         self.show_hidden_initial = show_hidden_initial
@@ -170,17 +170,6 @@ class Field(object):
         Field.
         """
         return {}
-
-    def get_limit_choices_to(self):
-        """
-        Returns ``limit_choices_to`` for this form field.
-
-        If it is a callable, it will be invoked and the result will be
-        returned.
-        """
-        if callable(self.limit_choices_to):
-            return self.limit_choices_to()
-        return self.limit_choices_to
 
     def _has_changed(self, initial, data):
         """
@@ -527,7 +516,7 @@ class RegexField(CharField):
         'Enter a valid value' is too generic for you.
         """
         # error_message is just kept for backwards compatibility:
-        if error_message:
+        if error_message is not None:
             error_messages = kwargs.get('error_messages') or {}
             error_messages['invalid'] = error_message
             kwargs['error_messages'] = error_messages

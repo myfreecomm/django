@@ -56,6 +56,14 @@ ALWAYS_INSTALLED_APPS = [
     'servers.another_app',
 ]
 
+ALWAYS_MIDDLEWARE_CLASSES = (
+    'django.contrib.sessions.middleware.SessionMiddleware',
+    'django.middleware.common.CommonMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',
+    'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'django.contrib.messages.middleware.MessageMiddleware',
+)
+
 
 def get_test_modules():
     from django.contrib.gis.tests.utils import HAS_SPATIAL_DB
@@ -87,7 +95,7 @@ def get_installed():
 
 
 def setup(verbosity, test_labels):
-    from django.apps import apps, AppConfig
+    from django.apps import apps
     from django.conf import settings
     from django.test import TransactionTestCase, TestCase
 
@@ -107,6 +115,7 @@ def setup(verbosity, test_labels):
         'LANGUAGE_CODE': settings.LANGUAGE_CODE,
         'STATIC_URL': settings.STATIC_URL,
         'STATIC_ROOT': settings.STATIC_ROOT,
+        'MIDDLEWARE_CLASSES': settings.MIDDLEWARE_CLASSES,
     }
 
     # Redirect some settings for the duration of these tests.
@@ -117,6 +126,15 @@ def setup(verbosity, test_labels):
     settings.TEMPLATE_DIRS = (os.path.join(RUNTESTS_DIR, TEST_TEMPLATE_DIR),)
     settings.LANGUAGE_CODE = 'en'
     settings.SITE_ID = 1
+    settings.MIDDLEWARE_CLASSES = ALWAYS_MIDDLEWARE_CLASSES
+    # Ensure the middleware classes are seen as overridden otherwise we get a compatibility warning.
+    settings._explicit_settings.add('MIDDLEWARE_CLASSES')
+    settings.MIGRATION_MODULES = {
+        # these 'tests.migrations' modules don't actually exist, but this lets
+        # us skip creating migrations for the test models.
+        'auth': 'django.contrib.auth.tests.migrations',
+        'contenttypes': 'django.contrib.contenttypes.tests.migrations',
+    }
 
     if verbosity > 0:
         # Ensure any warnings captured to logging are piped through a verbose
@@ -152,6 +170,7 @@ def setup(verbosity, test_labels):
             bits = bits[:1]
         test_labels_set.add('.'.join(bits))
 
+    installed_app_names = set(get_installed())
     for modpath, module_name in test_modules:
         if modpath:
             module_label = '.'.join([modpath, module_name])
@@ -168,16 +187,12 @@ def setup(verbosity, test_labels):
                 module_label == label or module_label.startswith(label + '.')
                 for label in test_labels_set)
 
-        installed_app_names = set(get_installed())
         if module_found_in_labels and module_label not in installed_app_names:
             if verbosity >= 2:
                 print("Importing application %s" % module_name)
-            # HACK.
             settings.INSTALLED_APPS.append(module_label)
-            app_config = AppConfig.create(module_label)
-            apps.app_configs[app_config.label] = app_config
-            app_config.import_models(apps.all_models[app_config.label])
-            apps.clear_cache()
+
+    apps.set_installed_apps(settings.INSTALLED_APPS)
 
     return state
 
@@ -221,6 +236,11 @@ def django_tests(verbosity, interactive, failfast, test_labels):
             'ignore',
             "Custom SQL location '<app_label>/models/sql' is deprecated, "
             "use '<app_label>/sql' instead.",
+            RemovedInDjango19Warning
+        )
+        warnings.filterwarnings(
+            'ignore',
+            'IPAddressField has been deprecated. Use GenericIPAddressField instead.',
             RemovedInDjango19Warning
         )
         failures = test_runner.run_tests(

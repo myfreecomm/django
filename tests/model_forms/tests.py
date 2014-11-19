@@ -22,7 +22,7 @@ from django.utils import six
 from .models import (Article, ArticleStatus, Author, Author1, BetterWriter, BigInt, Book,
     Category, CommaSeparatedInteger, CustomFF, CustomFieldForExclusionModel,
     DerivedBook, DerivedPost, Document, ExplicitPK, FilePathModel, FlexibleDatePost, Homepage,
-    ImprovedArticle, ImprovedArticleWithParentLink, Inventory, Person, Post, Price,
+    ImprovedArticle, ImprovedArticleWithParentLink, Inventory, Person, Photo, Post, Price,
     Product, Publication, TextFile, Triple, Writer, WriterProfile,
     Colour, ColourfulItem, ArticleStatusNote, DateTimePost, CustomErrorMessage,
     test_images, StumpJoke, Character)
@@ -660,7 +660,7 @@ class UniqueTest(TestCase):
         form = TripleForm({'left': '1', 'middle': '3', 'right': '1'})
         self.assertTrue(form.is_valid())
 
-    @skipUnlessDBFeature('ignores_nulls_in_unique_constraints')
+    @skipUnlessDBFeature('supports_nullable_unique_constraints')
     def test_unique_null(self):
         title = 'I May Be Wrong But I Doubt It'
         form = BookForm({'title': title, 'author': self.writer.pk})
@@ -1097,7 +1097,7 @@ class ModelFormBasicTests(TestCase):
         self.assertEqual(f.cleaned_data['slug'], 'entertainment')
         self.assertEqual(f.cleaned_data['url'], 'entertainment')
         c1 = f.save()
-        # Testing wether the same object is returned from the
+        # Testing whether the same object is returned from the
         # ORM... not the fastest way...
 
         self.assertEqual(Category.objects.count(), 1)
@@ -1838,6 +1838,36 @@ class FileAndImageFieldTests(TestCase):
         form = CFFForm(data={'f': None})
         form.save()
 
+    def test_file_field_multiple_save(self):
+        """
+        Simulate a file upload and check how many times Model.save() gets
+        called. Test for bug #639.
+        """
+        class PhotoForm(forms.ModelForm):
+            class Meta:
+                model = Photo
+                fields = '__all__'
+
+        # Grab an image for testing.
+        filename = os.path.join(os.path.dirname(upath(__file__)), "test.png")
+        with open(filename, "rb") as fp:
+            img = fp.read()
+
+        # Fake a POST QueryDict and FILES MultiValueDict.
+        data = {'title': 'Testing'}
+        files = {"image": SimpleUploadedFile('test.png', img, 'image/png')}
+
+        form = PhotoForm(data=data, files=files)
+        p = form.save()
+
+        try:
+            # Check the savecount stored on the object (see the model).
+            self.assertEqual(p._savecount, 1)
+        finally:
+            # Delete the "uploaded" file to avoid clogging /tmp.
+            p = Photo.objects.get()
+            p.image.delete(save=False)
+
     def test_file_path_field_blank(self):
         """
         Regression test for #8842: FilePathField(blank=True)
@@ -2267,7 +2297,7 @@ class ModelFormInheritanceTests(TestCase):
 
         self.assertEqual(list(ModelForm().fields.keys()), ['name', 'age'])
 
-    def test_field_shadowing(self):
+    def test_field_removal(self):
         class ModelForm(forms.ModelForm):
             class Meta:
                 model = Writer
@@ -2290,11 +2320,41 @@ class ModelFormInheritanceTests(TestCase):
         self.assertEqual(list(type(str('NewForm'), (ModelForm, Form, Mixin), {})().fields.keys()), ['name', 'age'])
         self.assertEqual(list(type(str('NewForm'), (ModelForm, Form), {'age': None})().fields.keys()), ['name'])
 
+    def test_field_removal_name_clashes(self):
+        """Regression test for https://code.djangoproject.com/ticket/22510."""
+
+        class MyForm(forms.ModelForm):
+            media = forms.CharField()
+
+            class Meta:
+                model = Writer
+                fields = '__all__'
+
+        class SubForm(MyForm):
+            media = None
+
+        self.assertIn('media', MyForm().fields)
+        self.assertNotIn('media', SubForm().fields)
+        self.assertTrue(hasattr(MyForm, 'media'))
+        self.assertTrue(hasattr(SubForm, 'media'))
+
 
 class StumpJokeForm(forms.ModelForm):
     class Meta:
         model = StumpJoke
         fields = '__all__'
+
+
+class CustomFieldWithQuerysetButNoLimitChoicesTo(forms.Field):
+    queryset = 42
+
+
+class StumpJokeWithCustomFieldForm(forms.ModelForm):
+    custom = CustomFieldWithQuerysetButNoLimitChoicesTo()
+
+    class Meta:
+        model = StumpJoke
+        fields = ()  # We don't need any fields from the model
 
 
 class LimitChoicesToTest(TestCase):
@@ -2326,6 +2386,14 @@ class LimitChoicesToTest(TestCase):
         stumpjokeform = StumpJokeForm()
         self.assertIn(self.threepwood, stumpjokeform.fields['has_fooled_today'].queryset)
         self.assertNotIn(self.marley, stumpjokeform.fields['has_fooled_today'].queryset)
+
+    def test_custom_field_with_queryset_but_no_limit_choices_to(self):
+        """
+        Regression test for #23795: Make sure a custom field with a `queryset`
+        attribute but no `limit_choices_to` still works.
+        """
+        f = StumpJokeWithCustomFieldForm()
+        self.assertEqual(f.fields['custom'].queryset, 42)
 
 
 class FormFieldCallbackTests(TestCase):

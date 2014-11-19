@@ -1102,7 +1102,7 @@ class Query(object):
                 raise FieldError(
                     "Unsupported lookup '%s' for %s or join on the field not "
                     "permitted." %
-                    (lookup, lhs.output_type.__class__.__name__))
+                    (lookup, lhs.output_field.__class__.__name__))
             lookups = lookups[1:]
 
     def build_filter(self, filter_expr, branch_negated=False, current_negated=False,
@@ -1159,6 +1159,9 @@ class Query(object):
         try:
             field, sources, opts, join_list, path = self.setup_joins(
                 parts, opts, alias, can_reuse, allow_many)
+            # split_exclude() needs to know which joins were generated for the
+            # lookup parts
+            self._lookup_joins = join_list
         except MultiJoin as e:
             return self.split_exclude(filter_expr, LOOKUP_SEP.join(parts[:e.level]),
                                       can_reuse, e.names_with_path)
@@ -1187,7 +1190,7 @@ class Query(object):
                     raise FieldError(
                         "Join on field '%s' not permitted. Did you "
                         "misspell '%s' for the lookup type?" %
-                        (col.output_type.name, lookups[0]))
+                        (col.output_field.name, lookups[0]))
                 if len(lookups) > 1:
                     raise FieldError("Nested lookup '%s' not supported." %
                                      LOOKUP_SEP.join(lookups))
@@ -1429,6 +1432,8 @@ class Query(object):
             alias = self.join(
                 connection, reuse=reuse, nullable=nullable, join_field=join.join_field)
             joins.append(alias)
+        if hasattr(final_field, 'field'):
+            final_field = final_field.field
         return final_field, targets, opts, joins, path
 
     def trim_joins(self, targets, joins, path):
@@ -1486,7 +1491,7 @@ class Query(object):
         query.remove_inherited_models()
 
         # Add extra check to make sure the selected field will not be null
-        # since we are adding a IN <subquery> clause. This prevents the
+        # since we are adding an IN <subquery> clause. This prevents the
         # database from tripping over IN (...,NULL,...) selects and returning
         # nothing
         alias, col = query.select[0].col
@@ -1899,17 +1904,21 @@ class Query(object):
         for _, paths in names_with_path:
             all_paths.extend(paths)
         contains_louter = False
-        for pos, path in enumerate(all_paths):
+        # Trim and operate only on tables that were generated for
+        # the lookup part of the query. That is, avoid trimming
+        # joins generated for F() expressions.
+        lookup_tables = [t for t in self.tables if t in self._lookup_joins or t == self.tables[0]]
+        for trimmed_paths, path in enumerate(all_paths):
             if path.m2m:
                 break
-            if self.alias_map[self.tables[pos + 1]].join_type == self.LOUTER:
+            if self.alias_map[lookup_tables[trimmed_paths + 1]].join_type == self.LOUTER:
                 contains_louter = True
-            self.unref_alias(self.tables[pos])
+            self.unref_alias(lookup_tables[trimmed_paths])
         # The path.join_field is a Rel, lets get the other side's field
         join_field = path.join_field.field
         # Build the filter prefix.
+        paths_in_prefix = trimmed_paths
         trimmed_prefix = []
-        paths_in_prefix = pos
         for name, path in names_with_path:
             if paths_in_prefix - len(path) < 0:
                 break
@@ -1921,12 +1930,12 @@ class Query(object):
         # Lets still see if we can trim the first join from the inner query
         # (that is, self). We can't do this for LEFT JOINs because we would
         # miss those rows that have nothing on the outer side.
-        if self.alias_map[self.tables[pos + 1]].join_type != self.LOUTER:
+        if self.alias_map[lookup_tables[trimmed_paths + 1]].join_type != self.LOUTER:
             select_fields = [r[0] for r in join_field.related_fields]
-            select_alias = self.tables[pos + 1]
-            self.unref_alias(self.tables[pos])
+            select_alias = lookup_tables[trimmed_paths + 1]
+            self.unref_alias(lookup_tables[trimmed_paths])
             extra_restriction = join_field.get_extra_restriction(
-                self.where_class, None, self.tables[pos + 1])
+                self.where_class, None, lookup_tables[trimmed_paths + 1])
             if extra_restriction:
                 self.where.add(extra_restriction, AND)
         else:
@@ -1934,7 +1943,7 @@ class Query(object):
             # inner query if it happens to have a longer join chain containing the
             # values in select_fields. Lets punt this one for now.
             select_fields = [r[1] for r in join_field.related_fields]
-            select_alias = self.tables[pos]
+            select_alias = lookup_tables[trimmed_paths]
         self.select = [SelectInfo((select_alias, f.column), f) for f in select_fields]
         return trimmed_prefix, contains_louter
 
@@ -2082,7 +2091,7 @@ class JoinPromoter(object):
             # join.
             # Note that in this example we could just as well have the __gte
             # clause and the OR clause swapped. Or we could replace the __gte
-            # clause with a OR clause containing rel_a__col=1|rel_a__col=2,
+            # clause with an OR clause containing rel_a__col=1|rel_a__col=2,
             # and again we could safely demote to INNER.
         query.promote_joins(to_promote)
         query.demote_joins(to_demote)

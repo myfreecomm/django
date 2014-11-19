@@ -16,7 +16,6 @@ from django.db.models import signals
 from django.test import (TestCase, TransactionTestCase, skipIfDBFeature,
     skipUnlessDBFeature)
 from django.test import override_settings
-from django.utils.encoding import force_text
 from django.utils._os import upath
 from django.utils import six
 from django.utils.six import PY3, StringIO
@@ -405,6 +404,7 @@ class TestFixtures(TestCase):
             % widget.pk
         )
 
+    @skipUnlessDBFeature('supports_forward_references')
     def test_loaddata_works_when_fixture_has_forward_refs(self):
         """
         Regression for #3615 - Forward references cause fixtures not to load in MySQL (InnoDB)
@@ -429,6 +429,7 @@ class TestFixtures(TestCase):
                 verbosity=0,
             )
 
+    @skipUnlessDBFeature('supports_forward_references')
     @override_settings(FIXTURE_DIRS=[os.path.join(_cur_dir, 'fixtures_1'),
                                      os.path.join(_cur_dir, 'fixtures_2')])
     def test_loaddata_forward_refs_split_fixtures(self):
@@ -457,18 +458,6 @@ class TestFixtures(TestCase):
                 verbosity=0,
             )
 
-    def test_loaddata_not_existant_fixture_file(self):
-        stdout_output = StringIO()
-        with warnings.catch_warnings(record=True):
-            management.call_command(
-                'loaddata',
-                'this_fixture_doesnt_exist',
-                verbosity=2,
-                stdout=stdout_output,
-            )
-        self.assertTrue("No fixture 'this_fixture_doesnt_exist' in" in
-            force_text(stdout_output.getvalue()))
-
     def test_ticket_20820(self):
         """
         Regression for ticket #20820 -- loaddata on a model that inherits
@@ -477,6 +466,18 @@ class TestFixtures(TestCase):
         management.call_command(
             'loaddata',
             'special-article.json',
+            verbosity=0,
+        )
+
+    def test_ticket_22421(self):
+        """
+        Regression for ticket #22421 -- loaddata on a model that inherits from
+        a grand-parent model with a M2M but via an abstract parent shouldn't
+        blow up.
+        """
+        management.call_command(
+            'loaddata',
+            'feature.json',
             verbosity=0,
         )
 

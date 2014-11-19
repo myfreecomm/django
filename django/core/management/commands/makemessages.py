@@ -8,10 +8,11 @@ from itertools import dropwhile
 from optparse import make_option
 
 import django
+from django.conf import settings
 from django.core.management.base import CommandError, NoArgsCommand
 from django.core.management.utils import (handle_extensions, find_command,
     popen_wrapper)
-from django.utils.encoding import force_str
+from django.utils.encoding import force_str, force_text
 from django.utils.functional import total_ordering
 from django.utils import six
 from django.utils.text import get_text_list
@@ -55,7 +56,6 @@ class TranslatableFile(object):
 
         Uses the xgettext GNU gettext utility.
         """
-
         from django.utils.translation import templatize
 
         if command.verbosity > 1:
@@ -132,11 +132,11 @@ class TranslatableFile(object):
                 # Remove '.py' suffix
                 if os.name == 'nt':
                     # Preserve '.\' prefix on Windows to respect gettext behavior
-                    old = '#: ' + work_file
-                    new = '#: ' + orig_file
+                    old = '#: ' + force_str(work_file)
+                    new = '#: ' + force_str(orig_file)
                 else:
-                    old = '#: ' + work_file[2:]
-                    new = '#: ' + orig_file[2:]
+                    old = '#: ' + force_str(work_file[2:])
+                    new = '#: ' + force_str(orig_file[2:])
                 msgs = msgs.replace(old, new)
             write_pot_file(potfile, msgs)
 
@@ -206,6 +206,13 @@ class Command(NoArgsCommand):
         process_all = options.get('all')
         extensions = options.get('extensions')
         self.symlinks = options.get('symlinks')
+
+        # Need to ensure that the i18n framework is enabled
+        if settings.configured:
+            settings.USE_I18N = True
+        else:
+            settings.configure(USE_I18N=True)
+
         ignore_patterns = options.get('ignore_patterns')
         if options.get('use_default_ignore_patterns'):
             ignore_patterns += ['CVS', '.*', '*~', '*.pyc']
@@ -239,13 +246,6 @@ class Command(NoArgsCommand):
             raise CommandError("Type '%s help %s' for usage information." % (
                 os.path.basename(sys.argv[0]), sys.argv[1]))
 
-        # Need to ensure that the i18n framework is enabled
-        from django.conf import settings
-        if settings.configured:
-            settings.USE_I18N = True
-        else:
-            settings.configure(USE_I18N=True)
-
         if self.verbosity > 1:
             self.stdout.write('examining files with the extensions: %s\n'
                              % get_text_list(list(self.extensions), 'and'))
@@ -257,8 +257,6 @@ class Command(NoArgsCommand):
             self.locale_paths = [os.path.abspath(os.path.join('conf', 'locale'))]
             self.default_locale_path = self.locale_paths[0]
             self.invoked_for_django = True
-            # Ignoring all contrib apps
-            self.ignore_patterns += ['contrib/*']
         else:
             self.locale_paths.extend(list(settings.LOCALE_PATHS))
             # Allow to run makemessages inside an app dir
@@ -341,15 +339,27 @@ class Command(NoArgsCommand):
             Check if the given path should be ignored or not.
             """
             filename = os.path.basename(path)
-            ignore = lambda pattern: fnmatch.fnmatchcase(filename, pattern)
+            ignore = lambda pattern: (fnmatch.fnmatchcase(filename, pattern) or
+                fnmatch.fnmatchcase(path, pattern))
             return any(ignore(pattern) for pattern in ignore_patterns)
 
-        dir_suffix = '%s*' % os.sep
-        norm_patterns = [p[:-len(dir_suffix)] if p.endswith(dir_suffix) else p for p in self.ignore_patterns]
+        ignore_patterns = [os.path.normcase(p) for p in self.ignore_patterns]
+        dir_suffixes = {'%s*' % path_sep for path_sep in {'/', os.sep}}
+        norm_patterns = []
+        for p in ignore_patterns:
+            for dir_suffix in dir_suffixes:
+                if p.endswith(dir_suffix):
+                    norm_patterns.append(p[:-len(dir_suffix)])
+                    break
+            else:
+                norm_patterns.append(p)
+
         all_files = []
-        for dirpath, dirnames, filenames in os.walk(root, topdown=True, followlinks=self.symlinks):
+        ignored_roots = [os.path.normpath(p) for p in (settings.MEDIA_ROOT, settings.STATIC_ROOT) if p]
+        for dirpath, dirnames, filenames in os.walk(force_text(root), topdown=True, followlinks=self.symlinks):
             for dirname in dirnames[:]:
-                if is_ignored(os.path.normpath(os.path.join(dirpath, dirname)), norm_patterns):
+                if (is_ignored(os.path.normpath(os.path.join(dirpath, dirname)), norm_patterns) or
+                        os.path.join(os.path.abspath(dirpath), dirname) in ignored_roots):
                     dirnames.remove(dirname)
                     if self.verbosity > 1:
                         self.stdout.write('ignoring directory %s\n' % dirname)

@@ -1052,6 +1052,25 @@ class SessionTests(TestCase):
         user_logged_out.disconnect(listener)
         self.assertTrue(listener.executed)
 
+    @override_settings(AUTHENTICATION_BACKENDS=(
+        'django.contrib.auth.backends.ModelBackend',
+        'test_client_regress.auth_backends.CustomUserBackend'))
+    def test_logout_with_custom_auth_backend(self):
+        "Request a logout after logging in with custom authentication backend"
+        def listener(*args, **kwargs):
+            self.assertEqual(kwargs['sender'], CustomUser)
+            listener.executed = True
+        listener.executed = False
+        u = CustomUser.custom_objects.create(email='test@test.com')
+        u.set_password('password')
+        u.save()
+
+        user_logged_out.connect(listener)
+        self.client.login(username='test@test.com', password='password')
+        self.client.logout()
+        user_logged_out.disconnect(listener)
+        self.assertTrue(listener.executed)
+
     def test_logout_without_user(self):
         """Logout should send signal even if user not authenticated."""
         def listener(user, *args, **kwargs):
@@ -1166,6 +1185,16 @@ class RequestMethodStringDataTests(TestCase):
         response = self.client.patch('/request_methods/', data=data, content_type='application/json')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.content, b'request method: PATCH')
+
+    def test_empty_string_data(self):
+        "Request a view with empty string data via request method GET/POST/HEAD"
+        # Regression test for #21740
+        response = self.client.get('/body/', data='', content_type='application/json')
+        self.assertEqual(response.content, b'')
+        response = self.client.post('/body/', data='', content_type='application/json')
+        self.assertEqual(response.content, b'')
+        response = self.client.head('/body/', data='', content_type='application/json')
+        self.assertEqual(response.content, b'')
 
 
 class QueryStringTests(TestCase):

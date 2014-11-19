@@ -35,7 +35,9 @@ from .models import (Article, Chapter, Child, Parent, Picture, Widget,
     UnchangeableObject, UserMessenger, Simple, Choice, ShortMessage, Telegram,
     FilteredManager, EmptyModelHidden, EmptyModelVisible, EmptyModelMixin,
     State, City, Restaurant, Worker, ParentWithDependentChildren,
-    DependentChild, StumpJoke, FieldOverridePost)
+    DependentChild, StumpJoke, FieldOverridePost, FunkyTag,
+    ReferencedByParent, ChildOfReferer, M2MReference, ReferencedByInline,
+    InlineReference, InlineReferer, Ingredient)
 
 
 def callable_year(dt_value):
@@ -216,7 +218,7 @@ class SubscriberAdmin(admin.ModelAdmin):
     def mail_admin(self, request, selected):
         EmailMessage(
             'Greetings from a ModelAdmin action',
-            'This is the test email from a admin action',
+            'This is the test email from an admin action',
             'from@example.com',
             ['to@example.com']
         ).send()
@@ -821,6 +823,18 @@ class RestaurantAdmin(admin.ModelAdmin):
         return {'name': 'overridden_value'}
 
 
+class FunkyTagAdmin(admin.ModelAdmin):
+    list_display = ('name', 'content_object')
+
+
+class InlineReferenceInline(admin.TabularInline):
+    model = InlineReference
+
+
+class InlineRefererAdmin(admin.ModelAdmin):
+    inlines = [InlineReferenceInline]
+
+
 site = admin.AdminSite(name="admin")
 site.register(Article, ArticleAdmin)
 site.register(CustomArticle, CustomArticleAdmin)
@@ -876,6 +890,12 @@ site.register(State, StateAdmin)
 site.register(City, CityAdmin)
 site.register(Restaurant, RestaurantAdmin)
 site.register(Worker, WorkerAdmin)
+site.register(FunkyTag, FunkyTagAdmin)
+site.register(ReferencedByParent)
+site.register(ChildOfReferer)
+site.register(M2MReference)
+site.register(ReferencedByInline)
+site.register(InlineReferer, InlineRefererAdmin)
 
 # We intentionally register Promo and ChapterXtra1 but not Chapter nor ChapterXtra2.
 # That way we cover all four cases:
@@ -912,6 +932,7 @@ site.register(EmptyModelHidden, EmptyModelHiddenAdmin)
 site.register(EmptyModelVisible, EmptyModelVisibleAdmin)
 site.register(EmptyModelMixin, EmptyModelMixinAdmin)
 site.register(StumpJoke)
+site.register(Ingredient)
 
 # Register core models we need in our tests
 from django.contrib.auth.models import User, Group
