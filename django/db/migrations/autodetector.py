@@ -374,17 +374,11 @@ class MigrationAutodetector(object):
             )
         # Field is removed and part of an index/unique_together
         elif dependency[2] is not None and dependency[3] == "foo_together_change":
-            if operation.name.lower() == dependency[1].lower():
-                return (
-                    (
-                        isinstance(operation, operations.AlterUniqueTogether) and
-                        any(dependency[2] not in t for t in operation.unique_together)
-                    ) or
-                    (
-                        isinstance(operation, operations.AlterIndexTogether) and
-                        any(dependency[2] not in t for t in operation.index_together)
-                    )
-                )
+            return (
+                isinstance(operation, (operations.AlterUniqueTogether,
+                                       operations.AlterIndexTogether)) and
+                operation.name.lower() == dependency[1].lower()
+            )
         # Unknown dependency. Raise an error.
         else:
             raise ValueError("Can't handle dependency %r" % (dependency, ))
@@ -477,7 +471,7 @@ class MigrationAutodetector(object):
                     if field.rel.to:
                         if field.primary_key:
                             primary_key_rel = field.rel.to
-                        else:
+                        elif not field.rel.parent_link:
                             related_fields[field.name] = field
                     # through will be none on M2Ms on swapped-out models;
                     # we can treat lack of through as auto_created=True, though.
@@ -808,8 +802,11 @@ class MigrationAutodetector(object):
                         None,
                         True
                     ))
-            # You can't just add NOT NULL fields with no default
-            if not field.null and not field.has_default() and not isinstance(field, models.ManyToManyField):
+            # You can't just add NOT NULL fields with no default or fields
+            # which don't allow empty strings as default.
+            if (not field.null and not field.has_default() and
+                    not isinstance(field, models.ManyToManyField) and
+                    not (field.blank and field.empty_strings_allowed)):
                 field = field.clone()
                 field.default = self.questioner.ask_not_null_addition(field_name, model_name)
                 self.add_operation(

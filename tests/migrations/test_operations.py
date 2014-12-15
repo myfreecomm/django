@@ -80,7 +80,7 @@ class OperationTestBase(MigrationTestBase):
         # Make the "current" state
         model_options = {
             "swappable": "TEST_SWAP_MODEL",
-            "index_together": [["pink", "weight"]] if index_together else [],
+            "index_together": [["weight", "pink"]] if index_together else [],
             "unique_together": [["pink", "weight"]] if unique_together else [],
         }
         if options:
@@ -1011,11 +1011,15 @@ class OperationTests(OperationTestBase):
                 with atomic():
                     cursor.execute("INSERT INTO test_rnfl_pony (blue, weight) VALUES (1, 1)")
             cursor.execute("DELETE FROM test_rnfl_pony")
+        # Ensure the index constraint has been ported over
+        self.assertIndexExists("test_rnfl_pony", ["weight", "blue"])
         # And test reversal
         with connection.schema_editor() as editor:
             operation.database_backwards("test_rnfl", editor, new_state, project_state)
         self.assertColumnExists("test_rnfl_pony", "pink")
         self.assertColumnNotExists("test_rnfl_pony", "blue")
+        # Ensure the index constraint has been reset
+        self.assertIndexExists("test_rnfl_pony", ["weight", "pink"])
 
     def test_alter_unique_together(self):
         """
@@ -1215,6 +1219,12 @@ class OperationTests(OperationTestBase):
         self.assertEqual(len(new_state.models["test_runsql", "somethingelse"].fields), 1)
         # Make sure there's no table
         self.assertTableNotExists("i_love_ponies")
+        # Test SQL collection
+        with connection.schema_editor(collect_sql=True) as editor:
+            operation.database_forwards("test_runsql", editor, project_state, new_state)
+            self.assertIn("LIKE '%%ponies';", "\n".join(editor.collected_sql))
+            operation.database_backwards("test_runsql", editor, project_state, new_state)
+            self.assertIn("LIKE '%%Ponies%%';", "\n".join(editor.collected_sql))
         # Test the database alteration
         with connection.schema_editor() as editor:
             operation.database_forwards("test_runsql", editor, project_state, new_state)
